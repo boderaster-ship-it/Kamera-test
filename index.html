@@ -1,108 +1,74 @@
 <!doctype html>
 <html lang="de">
 <head>
-  <meta charset="utf-8" />
-  <title>Kamera App – Live-Filter + Aufnahme</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <style>
-    :root { --ui-gap: 12px; --btn-size: 56px; --radius: 14px; --bg:#0b0b0b; --panel:#141414; --text:#fff; --muted:#9aa0a6; }
-    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
-    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    .app {
-      height: 100%; display: grid; grid-template-rows: 1fr auto; gap: var(--ui-gap);
-      padding: env(safe-area-inset-top) var(--ui-gap) calc(env(safe-area-inset-bottom) + var(--ui-gap)) var(--ui-gap);
-    }
-    .stage {
-      position: relative; overflow: hidden; border-radius: var(--radius);
-      background: #000; box-shadow: 0 0 0 1px #222 inset;
-    }
-    video, canvas {
-      position: absolute; inset: 0; width: 100%; height: 100%;
-      object-fit: cover;
-    }
-    /* Spiegel-Effekt für Frontkamera-Feeling (nur Anzeige) */
-    .mirror {
-      transform: scaleX(-1);
-    }
-    .hud {
-      position: absolute; left: 0; right: 0; top: 0;
-      display: flex; gap: 8px; padding: 8px; align-items: center; justify-content: center;
-      pointer-events: none;
-    }
-    .line-indicator {
-      font: 600 12px/1 system-ui; color: #fff; background: rgba(0,0,0,.35);
-      padding: 6px 10px; border-radius: 999px; pointer-events: auto;
-      backdrop-filter: blur(4px);
-    }
-    .controls {
-      display: grid; gap: var(--ui-gap);
-      grid-template-columns: 1fr 1fr;
-    }
-    .panel {
-      background: var(--panel); border-radius: var(--radius);
-      padding: var(--ui-gap); display: grid; gap: var(--ui-gap);
-    }
-    .row { display: grid; gap: 8px; }
-    label { font-size: 13px; color: var(--muted) }
-    select, button {
-      width: 100%; font-size: 16px; padding: 12px 14px; border-radius: 12px; border: 1px solid #2a2a2a; background: #111; color: #fff;
-    }
-    button.primary { background: #0a84ff; border-color: #0a84ff; font-weight: 700 }
-    button.danger  { background: #ff453a; border-color: #ff453a; font-weight: 700 }
-    button:disabled { opacity: .6 }
-    .rec-dot {
-      width: 10px; height: 10px; border-radius: 999px; background: #ff453a; display: inline-block; margin-right: 8px; vertical-align: middle; box-shadow: 0 0 0 2px rgba(255,69,58,.25);
-      animation: pulse 1s infinite ease-in-out;
-    }
-    @keyframes pulse { 0%,100%{opacity:.35} 50%{opacity:1} }
-    .fineprint { font-size: 12px; color: var(--muted); text-align: center; }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Kamera App – Line-Art + Mic-Filter (iPhone-MP4)</title>
+<style>
+  :root { --gap:12px; --bg:#0b0b0b; --panel:#141414; --text:#fff; --muted:#9aa0a6; --radius:14px; }
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  .app{height:100%;display:grid;grid-template-rows:1fr auto;gap:var(--gap);
+       padding:env(safe-area-inset-top) var(--gap) calc(env(safe-area-inset-bottom)+var(--gap)) var(--gap)}
+  .stage{position:relative;overflow:hidden;border-radius:var(--radius);background:#000;box-shadow:0 0 0 1px #222 inset}
+  video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .mirror{transform:scaleX(-1)}
+  .hud{position:absolute;left:0;right:0;top:0;display:flex;gap:8px;padding:8px;align-items:center;justify-content:center;pointer-events:none}
+  .pill{font:600 12px/1 system-ui;color:#fff;background:rgba(0,0,0,.35);padding:6px 10px;border-radius:999px;backdrop-filter:blur(4px);pointer-events:auto}
+  .controls{display:grid;gap:var(--gap);grid-template-columns:1fr 1fr}
+  .panel{background:var(--panel);border-radius:var(--radius);padding:var(--gap);display:grid;gap:var(--gap)}
+  .row{display:grid;gap:8px}
+  label{font-size:13px;color:var(--muted)}
+  select,button{width:100%;font-size:16px;padding:12px 14px;border-radius:12px;border:1px solid #2a2a2a;background:#111;color:#fff}
+  button.primary{background:#0a84ff;border-color:#0a84ff;font-weight:700}
+  button.danger{background:#ff453a;border-color:#ff453a;font-weight:700}
+  button:disabled{opacity:.6}
+  .rec-dot{width:10px;height:10px;border-radius:999px;background:#ff453a;display:inline-block;margin-right:8px;vertical-align:middle;box-shadow:0 0 0 2px rgba(255,69,58,.25);animation:pulse 1s infinite ease-in-out}
+  @keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+  .fine{font-size:12px;color:var(--muted);text-align:center}
+</style>
 </head>
 <body>
 <div class="app">
-  <div class="stage" id="stage">
-    <!-- Roh-Vorschau (unsichtbar) -->
-    <video id="rawVideo" playsinline muted autoplay></video>
-    <!-- Gerenderter Output (sichtbar + aufgezeichnet) -->
-    <canvas id="outCanvas" class="mirror"></canvas>
-
+  <div class="stage">
+    <!-- Roh-Vorschau -->
+    <video id="raw" playsinline muted autoplay></video>
+    <!-- Sicht-/Aufnahme-Output -->
+    <canvas id="out" class="mirror"></canvas>
     <div class="hud">
-      <span class="line-indicator" id="lineHud">Filter: Aus</span>
+      <span class="pill" id="hud">Filter: Aus</span>
     </div>
   </div>
 
   <div class="controls">
     <div class="panel">
       <div class="row">
-        <label for="videoFilter">Video-Filter (Live + Aufnahme)</label>
-        <select id="videoFilter">
+        <label for="vFilter">Video-Filter</label>
+        <select id="vFilter">
           <option value="none">Aus</option>
           <option value="line-h">Line Art – Horizontal</option>
           <option value="line-v">Line Art – Vertikal</option>
         </select>
       </div>
       <div class="row">
-        <label for="micFilter">Mikrofon-Filter (Aufnahme)</label>
-        <select id="micFilter">
+        <label for="aFilter">Mikrofon-Filter</label>
+        <select id="aFilter">
           <option value="none">Aus</option>
           <option value="baby">Baby</option>
           <option value="smoker">Extremer Raucher</option>
         </select>
       </div>
       <div class="row">
-        <div class="fineprint">
-          Hinweis: „Stop“ öffnet das iOS-Share-Sheet. Dort „Video sichern“ wählen, um in <b>Fotos</b> zu speichern.
-        </div>
+        <div class="fine">iPhone: Nach <b>Stop</b> öffnet das Share-Sheet → „<b>Video sichern</b>“ speichert in <b>Fotos</b>. Fallback: MP4-Download.</div>
       </div>
     </div>
 
     <div class="panel">
-      <div class="row" style="grid-template-columns: 1fr 1fr; display: grid; gap: var(--ui-gap);">
-        <button id="startBtn" class="primary">▶︎ Aufnahme</button>
-        <button id="stopBtn" class="danger" disabled>■ Stop &amp; Sichern</button>
+      <div class="row" style="grid-template-columns:1fr 1fr;display:grid;gap:var(--gap);">
+        <button id="start" class="primary">▶︎ Aufnahme</button>
+        <button id="stop" class="danger" disabled>■ Stop & Sichern</button>
       </div>
       <div class="row">
-        <button id="flipBtn" title="Vorder-/Rückkamera umschalten">Kamera wechseln</button>
+        <button id="flip">Kamera wechseln</button>
       </div>
     </div>
   </div>
@@ -110,352 +76,278 @@
 
 <script>
 (() => {
-  const videoEl = document.getElementById('rawVideo');
-  const canvas  = document.getElementById('outCanvas');
-  const ctx     = canvas.getContext('2d', { alpha: false });
-  const videoFilterSel = document.getElementById('videoFilter');
-  const micFilterSel   = document.getElementById('micFilter');
-  const startBtn = document.getElementById('startBtn');
-  const stopBtn  = document.getElementById('stopBtn');
-  const flipBtn  = document.getElementById('flipBtn');
-  const lineHud  = document.getElementById('lineHud');
+  const $ = sel => document.querySelector(sel);
+  const raw = $('#raw');
+  const out = $('#out');
+  const ctx = out.getContext('2d', { alpha:false });
+  const hud = $('#hud');
+  const vFilter = $('#vFilter');
+  const aFilter = $('#aFilter');
+  const btnStart = $('#start');
+  const btnStop = $('#stop');
+  const btnFlip = $('#flip');
 
-  let stream = null;                // Original getUserMedia Stream (Video+Audio)
-  let facingMode = 'user';          // 'user' (Front) oder 'environment' (Rück)
-  let animationId = null;
+  let facingMode = 'user';
+  let stream = null;
+
+  /* ------- Line-Art: Freeze-on-pass Implementierung ------- */
+  let mode = 'none';          // 'none' | 'line-h' | 'line-v'
+  let line = 0;               // aktuelle Linienposition (px)
+  let linePrev = 0;           // voriger Wert (px)
+  const lineSpeed = 50;       // px/s
+  let animId = 0;
   let lastTs = 0;
 
-  // --- Line Art Filter State ---
-  let vfMode = 'none';              // 'none' | 'line-h' | 'line-v'
-  let linePos = 0;                  // aktuelle Linienposition
-  const lineSpeed = 50;             // px/sek
-  let frozenCanvas = document.createElement('canvas');
-  let frozenCtx    = frozenCanvas.getContext('2d', { alpha: false });
-  let needFreezeUpdate = true;
+  // Akkumulations-Canvas: enthält alle bereits "eingefrorenen" Pixel (schichtweise aufgebaut)
+  const acc = document.createElement('canvas');
+  const accCtx = acc.getContext('2d', { alpha:false });
 
-  // --- Audio Processing ---
-  let audioCtx = null;
-  let micSource = null;
-  let micDestination = null;        // MediaStreamDestination -> für Aufnahme
-  let currentNodes = [];            // aktuell verkettete Nodes im Mic-Chain
+  /* ------- Audio Chain ------- */
+  let audioCtx, micSource, dest, currentNodes = [];
 
-  // --- Recording ---
-  let recorder = null;
-  let recordedChunks = [];
-  let outStream = null;             // Kombinierter Stream: Canvas-Video + Processed-Audio
+  /* ------- Aufnahme ------- */
+  let recorder = null, chunks = [], outStream = null;
 
-  // Helpers
-  function isIOS() {
-    return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  }
-  function setHud(text) {
-    lineHud.textContent = text;
-  }
+  const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-  // Startet Kamera (Front default) + Mikro
   async function initMedia() {
-    if (stream) {
-      stream.getTracks().forEach(t => t.stop());
-      stream = null;
-    }
+    // Stoppe alte Tracks
+    if (stream) { stream.getTracks().forEach(t => t.stop()); }
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode,
-          width: { ideal: 1280 },
-          height:{ ideal: 720 }
-        },
+        video: { facingMode, width:{ideal:1280}, height:{ideal:720} },
         audio: true
       });
-      videoEl.srcObject = stream;
-      await videoEl.play().catch(()=>{});
-      // Canvas-Größe an Video anpassen
-      await waitForVideoReady();
-      resizeCanvases();
-      needFreezeUpdate = true;
+      raw.srcObject = stream;
+      await raw.play().catch(()=>{});
 
-      // Audio-Kette vorbereiten
-      setupAudioPipeline(stream);
+      await new Promise(r => {
+        if (raw.videoWidth) return r();
+        raw.addEventListener('loadedmetadata', () => r(), { once:true });
+      });
 
-      // Zeichen-Loop starten (falls nicht schon läuft)
-      if (!animationId) {
+      // Canvas-Größen angleichen
+      out.width = acc.width = raw.videoWidth || 1280;
+      out.height = acc.height = raw.videoHeight || 720;
+
+      resetLineArt();
+
+      setupAudio(stream);
+
+      // Zeichenloop starten
+      if (!animId) {
         lastTs = performance.now();
-        drawLoop(lastTs);
+        animId = requestAnimationFrame(draw);
       }
-    } catch (err) {
-      alert('Kamera/Mikrofon konnten nicht geöffnet werden:\n' + err);
-      console.error(err);
+    } catch (e) {
+      alert('Kamera/Mikrofon Fehler: ' + e);
+      console.error(e);
     }
   }
 
-  function waitForVideoReady() {
-    return new Promise(resolve => {
-      if (videoEl.videoWidth > 0 && videoEl.videoHeight > 0) return resolve();
-      videoEl.addEventListener('loadedmetadata', () => resolve(), { once: true });
-    });
+  function resetLineArt() {
+    line = linePrev = 0;
+    accCtx.fillStyle = '#000'; // leer (wird über Live-Bereich überdeckt)
+    accCtx.fillRect(0,0,acc.width,acc.height);
   }
 
-  function resizeCanvases() {
-    const vw = videoEl.videoWidth || 1280;
-    const vh = videoEl.videoHeight || 720;
-    // Canvas auf Videogröße setzen
-    canvas.width  = vw;
-    canvas.height = vh;
-    frozenCanvas.width  = vw;
-    frozenCanvas.height = vh;
-    // Stage füllt Container (CSS skaliert)
-  }
-
-  function captureFreezeFrame() {
-    frozenCtx.drawImage(videoEl, 0, 0, frozenCanvas.width, frozenCanvas.height);
-    needFreezeUpdate = false;
-  }
-
-  function drawLoop(ts) {
-    animationId = requestAnimationFrame(drawLoop);
-    const dt = Math.min(100, ts - lastTs) / 1000; // Sekunden (clamped)
+  function draw(ts) {
+    animId = requestAnimationFrame(draw);
+    const dt = Math.min(100, ts - lastTs)/1000; // s
     lastTs = ts;
 
-    const w = canvas.width, h = canvas.height;
+    const W = out.width, H = out.height;
 
-    if (vfMode === 'none') {
-      // Live-Frame 1:1
-      ctx.drawImage(videoEl, 0, 0, w, h);
-      setHud('Filter: Aus');
-    } else {
-      if (needFreezeUpdate) captureFreezeFrame();
-      // Linie fortbewegen
-      if (vfMode === 'line-h') {
-        linePos += lineSpeed * dt;
-        if (linePos > h) {
-          linePos = 0;
-          needFreezeUpdate = true; // neue Freeze-Basis für nächste Sweep
-        }
-        // Oberhalb: gefroren
-        if (linePos > 0) ctx.drawImage(frozenCanvas, 0, 0, w, linePos, 0, 0, w, linePos);
-        // Unterhalb: live
-        if (linePos < h) ctx.drawImage(videoEl, 0, linePos, w, h - linePos, 0, linePos, w, h - linePos);
-        // Linie zeichnen
-        ctx.fillStyle = 'rgba(255,255,255,0.8)';
-        ctx.fillRect(0, Math.floor(linePos) - 1, w, 2);
-        setHud('Filter: Line Art – Horizontal');
-      } else {
-        // line-v
-        linePos += lineSpeed * dt;
-        if (linePos > w) {
-          linePos = 0;
-          needFreezeUpdate = true;
-        }
-        // Links: gefroren
-        if (linePos > 0) ctx.drawImage(frozenCanvas, 0, 0, linePos, h, 0, 0, linePos, h);
-        // Rechts: live
-        if (linePos < w) ctx.drawImage(videoEl, linePos, 0, w - linePos, h, linePos, 0, w - linePos, h);
-        // Linie zeichnen
-        ctx.fillStyle = 'rgba(255,255,255,0.8)';
-        ctx.fillRect(Math.floor(linePos) - 1, 0, 2, h);
-        setHud('Filter: Line Art – Vertikal');
+    if (mode === 'none') {
+      hud.textContent = 'Filter: Aus';
+      ctx.drawImage(raw, 0, 0, W, H);
+      return;
+    }
+
+    // Linie bewegen
+    linePrev = line;
+    if (mode === 'line-h') {
+      line += lineSpeed * dt;
+      if (line > H) { line = 0; resetLineArt(); }
+      // NEU: freeze-on-pass – nur den neu überstrichenen Streifen in die Akkumulation kopieren
+      const y0 = Math.floor(linePrev), y1 = Math.floor(line);
+      if (y1 > y0) {
+        // kopiere den Streifen [y0, y1) aus dem Live-Video dauerhaft in acc
+        accCtx.drawImage(raw, 0, y0, W, y1 - y0, 0, y0, W, y1 - y0);
       }
+      // Rendern: oben (eingefroren aus acc), unten live
+      // oben bis y=line
+      if (line > 0) ctx.drawImage(acc, 0, 0, W, line, 0, 0, W, line);
+      // unten live
+      if (line < H) ctx.drawImage(raw, 0, line, W, H - line, 0, line, W, H - line);
+      // Linie zeichnen
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.fillRect(0, Math.floor(line) - 1, W, 2);
+      hud.textContent = 'Filter: Line Art – Horizontal';
+    } else {
+      // line-v
+      line += lineSpeed * dt;
+      if (line > W) { line = 0; resetLineArt(); }
+      const x0 = Math.floor(linePrev), x1 = Math.floor(line);
+      if (x1 > x0) {
+        accCtx.drawImage(raw, x0, 0, x1 - x0, H, x0, 0, x1 - x0, H);
+      }
+      if (line > 0) ctx.drawImage(acc, 0, 0, line, H, 0, 0, line, H);
+      if (line < W) ctx.drawImage(raw, line, 0, W - line, H, line, 0, W - line, H);
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.fillRect(Math.floor(line) - 1, 0, 2, H);
+      hud.textContent = 'Filter: Line Art – Vertikal';
     }
   }
 
-  // Audio Processing: erstellt/aktualisiert die Effektkette
-  function setupAudioPipeline(srcStream) {
-    if (!audioCtx) {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    // Quelle (Mikro aus getUserMedia)
+  /* -------- Audio (Mic-Filter) -------- */
+  function setupAudio(srcStream) {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
     micSource = audioCtx.createMediaStreamSource(srcStream);
-    // Ziel für Aufnahme
-    micDestination = audioCtx.createMediaStreamDestination();
-    // Standard: keine Effekte
-    applyMicFilterChain('none');
+    dest = audioCtx.createMediaStreamDestination();
+    applyMicFilter('none');
   }
 
-  function clearCurrentNodes() {
+  function clearNodes() {
     try { micSource.disconnect(); } catch {}
-    currentNodes.forEach(n => { try { n.disconnect(); } catch {} });
+    for (const n of currentNodes) { try { n.disconnect(); } catch {} }
     currentNodes = [];
   }
 
-  function applyMicFilterChain(mode) {
-    if (!audioCtx || !micSource || !micDestination) return;
-    clearCurrentNodes();
+  function distortionCurve(amount=50) {
+    const n=44100, c=new Float32Array(n), deg=Math.PI/180;
+    for (let i=0;i<n;i++){ const x=(i*2)/n-1; c[i]=(3+amount)*x*20*deg/(Math.PI+amount*Math.abs(x)); }
+    return c;
+  }
 
-    // Immer mit leichter Kompression am Ende für Pegel-Kohärenz
+  function applyMicFilter(kind) {
+    if (!audioCtx || !micSource || !dest) return;
+    clearNodes();
+
     const comp = audioCtx.createDynamicsCompressor();
-    comp.threshold.value = -18;
-    comp.knee.value = 20;
-    comp.ratio.value = 3;
-    comp.attack.value = 0.003;
-    comp.release.value = 0.25;
+    comp.threshold.value=-18; comp.knee.value=20; comp.ratio.value=3; comp.attack.value=0.003; comp.release.value=0.25;
 
-    if (mode === 'baby') {
-      const hp = audioCtx.createBiquadFilter();
-      hp.type = 'highpass'; hp.frequency.value = 400; hp.Q.value = 0.7;
+    if (kind==='baby') {
+      const hp = audioCtx.createBiquadFilter();  hp.type='highpass'; hp.frequency.value=400; hp.Q.value=0.7;
+      const hs = audioCtx.createBiquadFilter();  hs.type='highshelf'; hs.frequency.value=3000; hs.gain.value=8;
+      const dist = audioCtx.createWaveShaper();  dist.curve=distortionCurve(50); dist.oversample='2x';
 
-      const shelf = audioCtx.createBiquadFilter();
-      shelf.type = 'highshelf'; shelf.frequency.value = 3000; shelf.gain.value = 8;
+      micSource.connect(hp); hp.connect(hs); hs.connect(dist); dist.connect(comp); comp.connect(dest);
+      currentNodes.push(hp,hs,dist,comp);
+    } else if (kind==='smoker') {
+      const lp = audioCtx.createBiquadFilter();  lp.type='lowpass'; lp.frequency.value=1200; lp.Q.value=0.8;
+      const ls = audioCtx.createBiquadFilter();  ls.type='lowshelf'; ls.frequency.value=200;  ls.gain.value=9;
+      const dist = audioCtx.createWaveShaper();  dist.curve=distortionCurve(200); dist.oversample='4x';
 
-      // sanfte Sättigung
-      const dist = audioCtx.createWaveShaper();
-      dist.curve = makeDistortionCurve(50); dist.oversample = '2x';
-
-      // chain: src -> HP -> HighShelf -> Dist -> Comp -> Dest
-      micSource.connect(hp); hp.connect(shelf); shelf.connect(dist); dist.connect(comp); comp.connect(micDestination);
-
-      currentNodes.push(hp, shelf, dist, comp);
-    } else if (mode === 'smoker') {
-      const lp = audioCtx.createBiquadFilter();
-      lp.type = 'lowpass'; lp.frequency.value = 1200; lp.Q.value = 0.8;
-
-      const low = audioCtx.createBiquadFilter();
-      low.type = 'lowshelf'; low.frequency.value = 200; low.gain.value = 9;
-
-      const dist = audioCtx.createWaveShaper();
-      dist.curve = makeDistortionCurve(200); dist.oversample = '4x';
-
-      micSource.connect(lp); lp.connect(low); low.connect(dist); dist.connect(comp); comp.connect(micDestination);
-
-      currentNodes.push(lp, low, dist, comp);
+      micSource.connect(lp); lp.connect(ls); ls.connect(dist); dist.connect(comp); comp.connect(dest);
+      currentNodes.push(lp,ls,dist,comp);
     } else {
-      // none: src -> comp -> dest
-      micSource.connect(comp); comp.connect(micDestination);
+      micSource.connect(comp); comp.connect(dest);
       currentNodes.push(comp);
     }
   }
 
-  // Einfaches Distortion-Kurven-Helferlein
-  function makeDistortionCurve(amount = 50) {
-    const n_samples = 44100;
-    const curve = new Float32Array(n_samples);
-    const deg = Math.PI / 180;
-    for (let i = 0; i < n_samples; ++i) {
-      let x = (i * 2) / n_samples - 1;
-      curve[i] = (3 + amount) * x * 20 * deg / (Math.PI + amount * Math.abs(x));
-    }
-    return curve;
-  }
-
-  // Aufnahme starten (Canvas-Stream + verarbeitete Audio-Spur)
-  async function startRecording() {
+  /* -------- Aufnahme / Speichern (iPhone-freundlich) -------- */
+  async function startRec() {
     if (!stream) return;
+    if (audioCtx?.state !== 'running') { try { await audioCtx.resume(); } catch {} }
 
-    // iOS: AudioContext muss per User-Geste gestartet werden
-    if (audioCtx && audioCtx.state !== 'running') {
-      await audioCtx.resume().catch(()=>{});
-    }
-
-    // Video aus Canvas
+    // Video aus Canvas (inkl. Filter)
     const fps = 30;
-    const canvasStream = canvas.captureStream(fps);
+    const canvasStream = out.captureStream(fps);
 
-    // Audio aus unserer Destination
-    const audioTrack = micDestination?.stream.getAudioTracks()[0];
+    // Audio aus der verarbeiteten Chain
+    const audioTrack = dest?.stream.getAudioTracks()[0];
+
     outStream = new MediaStream();
     canvasStream.getVideoTracks().forEach(t => outStream.addTrack(t));
     if (audioTrack) outStream.addTrack(audioTrack);
 
-    recordedChunks = [];
-    let mime = '';
-    if (window.MediaRecorder && MediaRecorder.isTypeSupported('video/mp4;codecs=h264,aac')) {
-      mime = 'video/mp4;codecs=h264,aac';
-    } else if (window.MediaRecorder && MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) {
-      mime = 'video/webm;codecs=vp9,opus';
-    } else {
-      mime = 'video/webm;codecs=vp8,opus';
+    // iOS: erzwinge MP4 (H.264/AAC). Safari 16+ liefert mp4, selbst wenn isTypeSupported false meldet.
+    let mime = isIOS() ? 'video/mp4' : '';
+    if (!mime && window.MediaRecorder) {
+      if (MediaRecorder.isTypeSupported('video/mp4')) mime = 'video/mp4';
+      else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) mime = 'video/webm;codecs=vp9,opus';
+      else mime = 'video/webm;codecs=vp8,opus';
     }
 
+    chunks = [];
     try {
-      recorder = new MediaRecorder(outStream, { mimeType: mime, videoBitsPerSecond: 6_000_000, audioBitsPerSecond: 128_000 });
+      recorder = new MediaRecorder(outStream, mime ? { mimeType: mime } : undefined);
     } catch (e) {
-      alert('Aufnahme nicht unterstützt: ' + e);
+      alert('Aufnahme wird nicht unterstützt: ' + e);
       return;
     }
 
-    recorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedChunks.push(e.data); };
+    recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
     recorder.onstop = () => {
-      const blob = new Blob(recordedChunks, { type: mime || 'video/mp4' });
-      saveBlobToPhotos(blob);
+      // Viele Safari-Builds setzen blob.type nicht sauber → erzwinge MP4 auf iOS
+      const forcedType = isIOS() ? 'video/mp4' : (chunks[0]?.type || 'video/mp4');
+      const blob = new Blob(chunks, { type: forcedType });
+      saveBlobIOSFirst(blob);
     };
-    recorder.start(250); // alle 250ms Chunk
-    startBtn.disabled = true;
-    stopBtn.disabled = false;
-    startBtn.innerHTML = '<span class="rec-dot"></span> Aufnahme läuft…';
+
+    recorder.start(250);
+    btnStart.disabled = true; btnStop.disabled = false;
+    btnStart.innerHTML = '<span class="rec-dot"></span> Aufnahme läuft…';
   }
 
-  function stopRecording() {
-    if (recorder && recorder.state !== 'inactive') {
-      recorder.stop();
-    }
-    startBtn.disabled = false;
-    stopBtn.disabled = true;
-    startBtn.textContent = '▶︎ Aufnahme';
+  function stopRec() {
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
+    btnStart.disabled = false; btnStop.disabled = true;
+    btnStart.textContent = '▶︎ Aufnahme';
   }
 
-  async function saveBlobToPhotos(blob) {
-    // iOS: Share Sheet anbieten -> „Video sichern“ speichert in Fotos
-    const filename = (blob.type.includes('mp4') ? 'aufnahme.mp4' : 'aufnahme.webm');
-    const file = new File([blob], filename, { type: blob.type });
+  async function saveBlobIOSFirst(blob) {
+    const filename = (isIOS() ? 'aufnahme.mp4' : (blob.type.includes('webm') ? 'aufnahme.webm' : 'aufnahme.mp4'));
+    const file = new File([blob], filename, { type: 'video/mp4' });
 
+    // 1) iOS Share-Sheet (empfohlen) → „Video sichern“
     try {
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: 'Aufnahme', text: 'Aufnahme gespeichert' });
-      } else {
-        // Fallback: Download-Link
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = filename;
-        document.body.appendChild(a); a.click();
-        setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
-        alert('Falls kein Share-Sheet erscheint, wurde eine Datei heruntergeladen. In „Dateien“ oder „Downloads“ öffnen und ggf. in Fotos sichern.');
+      if (navigator.canShare && navigator.canShare({ files:[file] })) {
+        await navigator.share({ files:[file], title:'Aufnahme', text:'Aufnahme' });
+        return;
       }
-    } catch (err) {
-      // Wenn Nutzer Share abbricht, trotzdem Download anbieten
+    } catch {}
+
+    // 2) Download-Fallback (MP4) – landet in „Dateien“; kann von dort in Fotos geteilt werden
+    try {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click();
+      setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 1500);
+    } catch (e) {
+      // 3) Letzter Ausweg: In neuem Tab öffnen (iOS zeigt dann Share-Knopf)
       try {
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = filename;
-        document.body.appendChild(a); a.click();
-        setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+        window.open(url, '_blank');
       } catch {}
     }
   }
 
-  // UI-Events
-  videoFilterSel.addEventListener('change', () => {
-    vfMode = videoFilterSel.value;
-    linePos = 0;
-    needFreezeUpdate = true;
+  /* -------- UI Events -------- */
+  vFilter.addEventListener('change', () => {
+    mode = vFilter.value;
+    resetLineArt();
   });
 
-  micFilterSel.addEventListener('change', () => {
-    applyMicFilterChain(micFilterSel.value);
-  });
+  aFilter.addEventListener('change', () => applyMicFilter(aFilter.value));
 
-  startBtn.addEventListener('click', startRecording);
-  stopBtn.addEventListener('click', stopRecording);
+  btnStart.addEventListener('click', startRec);
+  btnStop .addEventListener('click', stopRec);
 
-  flipBtn.addEventListener('click', async () => {
+  btnFlip.addEventListener('click', async () => {
     facingMode = (facingMode === 'user') ? 'environment' : 'user';
-    // Spiegelung nur bei Front aktiv
-    canvas.classList.toggle('mirror', facingMode === 'user');
+    out.classList.toggle('mirror', facingMode === 'user'); // nur Anzeige spiegeln
     await initMedia();
   });
 
-  // Orientation/Resize-Handling (Canvas wird nur skaliert; interne Größe bleibt Videogröße)
-  window.addEventListener('resize', () => {
-    // Nur Anzeige ändert sich – nichts zu tun
-  });
-
-  // Autostart bei Laden
   document.addEventListener('visibilitychange', () => {
-    // Wenn zurückgekehrt und Stream weg: neu initialisieren
-    if (!document.hidden && (!stream || stream.getVideoTracks().every(t => t.readyState !== 'live'))) {
-      initMedia();
-    }
+    if (!document.hidden && (!stream || stream.getVideoTracks().every(t => t.readyState !== 'live'))) initMedia();
   });
 
-  // iOS benötigt oft eine Nutzer-Geste: wir versuchen sofort, ansonsten beim ersten Tap
+  // Autostart
   initMedia();
 })();
 </script>
