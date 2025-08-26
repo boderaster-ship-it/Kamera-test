@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Kamera App – Line-Art + Mic-Filter (iPhone-MP4)</title>
+<title>Kamera Line-Art Filter – Bild speichern (JPEG)</title>
 <style>
   :root { --gap:12px; --bg:#0b0b0b; --panel:#141414; --text:#fff; --muted:#9aa0a6; --radius:14px; }
   html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
@@ -18,13 +18,14 @@
   .panel{background:var(--panel);border-radius:var(--radius);padding:var(--gap);display:grid;gap:var(--gap)}
   .row{display:grid;gap:8px}
   label{font-size:13px;color:var(--muted)}
-  select,button{width:100%;font-size:16px;padding:12px 14px;border-radius:12px;border:1px solid #2a2a2a;background:#111;color:#fff}
+  select,button,input[type="range"]{width:100%;font-size:16px;padding:12px 14px;border-radius:12px;border:1px solid #2a2a2a;background:#111;color:#fff}
+  input[type="range"]{padding:10px}
   button.primary{background:#0a84ff;border-color:#0a84ff;font-weight:700}
+  button.alt{background:#2a2a2a;border-color:#2a2a2a}
+  button.good{background:#34c759;border-color:#34c759;font-weight:700}
+  button.warn{background:#ff9f0a;border-color:#ff9f0a;font-weight:700}
   button.danger{background:#ff453a;border-color:#ff453a;font-weight:700}
-  button:disabled{opacity:.6}
-  .rec-dot{width:10px;height:10px;border-radius:999px;background:#ff453a;display:inline-block;margin-right:8px;vertical-align:middle;box-shadow:0 0 0 2px rgba(255,69,58,.25);animation:pulse 1s infinite ease-in-out}
-  @keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
-  .fine{font-size:12px;color:var(--muted);text-align:center}
+  .hint{font-size:12px;color:var(--muted);text-align:center}
 </style>
 </head>
 <body>
@@ -32,43 +33,43 @@
   <div class="stage">
     <!-- Roh-Vorschau -->
     <video id="raw" playsinline muted autoplay></video>
-    <!-- Sicht-/Aufnahme-Output -->
+    <!-- Sichtbarer Output (inkl. Filter) -->
     <canvas id="out" class="mirror"></canvas>
+
     <div class="hud">
-      <span class="pill" id="hud">Filter: Aus</span>
+      <span class="pill" id="hud">Filter: pausiert</span>
     </div>
   </div>
 
   <div class="controls">
     <div class="panel">
       <div class="row">
-        <label for="vFilter">Video-Filter</label>
-        <select id="vFilter">
-          <option value="none">Aus</option>
-          <option value="line-h">Line Art – Horizontal</option>
-          <option value="line-v">Line Art – Vertikal</option>
+        <label for="orientation">Ausrichtung</label>
+        <select id="orientation">
+          <option value="line-h">Horizontal</option>
+          <option value="line-v">Vertikal</option>
         </select>
       </div>
       <div class="row">
-        <label for="aFilter">Mikrofon-Filter</label>
-        <select id="aFilter">
-          <option value="none">Aus</option>
-          <option value="baby">Baby</option>
-          <option value="smoker">Extremer Raucher</option>
-        </select>
+        <label for="speed">Geschwindigkeit: <span id="speedVal">50</span> px/s</label>
+        <input id="speed" type="range" min="5" max="300" step="1" value="50" />
       </div>
-      <div class="row">
-        <div class="fine">iPhone: Nach <b>Stop</b> öffnet das Share-Sheet → „<b>Video sichern</b>“ speichert in <b>Fotos</b>. Fallback: MP4-Download.</div>
+      <div class="row" style="grid-template-columns:1fr 1fr;display:grid;gap:12px">
+        <button id="start" class="primary">▶︎ Start</button>
+        <button id="pause" class="warn" disabled>⏸︎ Pause</button>
+      </div>
+      <div class="row" style="grid-template-columns:1fr 1fr;display:grid;gap:12px">
+        <button id="reset" class="alt">↺ Reset (neu einfrieren)</button>
+        <button id="flip" class="alt">Kamera wechseln</button>
       </div>
     </div>
 
     <div class="panel">
-      <div class="row" style="grid-template-columns:1fr 1fr;display:grid;gap:var(--gap);">
-        <button id="start" class="primary">▶︎ Aufnahme</button>
-        <button id="stop" class="danger" disabled>■ Stop & Sichern</button>
+      <div class="row" style="grid-template-columns:1fr;display:grid;gap:12px">
+        <button id="save" class="good">🖼️ Aktuelles Bild speichern (JPEG)</button>
       </div>
       <div class="row">
-        <button id="flip">Kamera wechseln</button>
+        <div class="hint">iPhone: Öffnet Share-Sheet → „Bild sichern“ (Fotos). Fallback: Download oder in neuem Tab öffnen.</div>
       </div>
     </div>
   </div>
@@ -76,47 +77,32 @@
 
 <script>
 (() => {
-  const $ = sel => document.querySelector(sel);
+  const $ = s => document.querySelector(s);
   const raw = $('#raw');
   const out = $('#out');
   const ctx = out.getContext('2d', { alpha:false });
   const hud = $('#hud');
-  const vFilter = $('#vFilter');
-  const aFilter = $('#aFilter');
-  const btnStart = $('#start');
-  const btnStop = $('#stop');
-  const btnFlip = $('#flip');
 
+  const selOrient = $('#orientation');
+  const rngSpeed = $('#speed');
+  const speedVal = $('#speedVal');
+  const btnStart = $('#start');
+  const btnPause = $('#pause');
+  const btnReset = $('#reset');
+  const btnFlip  = $('#flip');
+  const btnSave  = $('#save');
+
+  /* -------- Kamera -------- */
   let facingMode = 'user';
   let stream = null;
 
-  /* ------- Line-Art: Freeze-on-pass Implementierung ------- */
-  let mode = 'none';          // 'none' | 'line-h' | 'line-v'
-  let line = 0;               // aktuelle Linienposition (px)
-  let linePrev = 0;           // voriger Wert (px)
-  const lineSpeed = 50;       // px/s
-  let animId = 0;
-  let lastTs = 0;
-
-  // Akkumulations-Canvas: enthält alle bereits "eingefrorenen" Pixel (schichtweise aufgebaut)
-  const acc = document.createElement('canvas');
-  const accCtx = acc.getContext('2d', { alpha:false });
-
-  /* ------- Audio Chain ------- */
-  let audioCtx, micSource, dest, currentNodes = [];
-
-  /* ------- Aufnahme ------- */
-  let recorder = null, chunks = [], outStream = null;
-
-  const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-
   async function initMedia() {
-    // Stoppe alte Tracks
+    // alte Tracks schließen
     if (stream) { stream.getTracks().forEach(t => t.stop()); }
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode, width:{ideal:1280}, height:{ideal:720} },
-        audio: true
+        audio: false
       });
       raw.srcObject = stream;
       await raw.play().catch(()=>{});
@@ -126,29 +112,38 @@
         raw.addEventListener('loadedmetadata', () => r(), { once:true });
       });
 
-      // Canvas-Größen angleichen
       out.width = acc.width = raw.videoWidth || 1280;
       out.height = acc.height = raw.videoHeight || 720;
 
-      resetLineArt();
-
-      setupAudio(stream);
-
-      // Zeichenloop starten
-      if (!animId) {
-        lastTs = performance.now();
-        animId = requestAnimationFrame(draw);
-      }
+      resetLineArt(); // nach jeder Kameraänderung neu beginnen
     } catch (e) {
-      alert('Kamera/Mikrofon Fehler: ' + e);
+      alert('Kamera konnte nicht geöffnet werden: ' + e);
       console.error(e);
     }
   }
 
+  /* -------- Line-Art Filter (Freeze-on-pass) -------- */
+  let mode = 'line-h';     // 'line-h' | 'line-v'
+  let running = false;
+  let line = 0, linePrev = 0;
+  let lineSpeed = 50;      // px/s
+  let animId = 0, lastTs = 0;
+
+  // Akkumulation: dauerhafte „gefrorene“ Bereiche
+  const acc = document.createElement('canvas');
+  const accCtx = acc.getContext('2d', { alpha:false });
+
   function resetLineArt() {
     line = linePrev = 0;
-    accCtx.fillStyle = '#000'; // leer (wird über Live-Bereich überdeckt)
+    accCtx.fillStyle = '#000';
     accCtx.fillRect(0,0,acc.width,acc.height);
+    renderFrame(0); // sofortiges Bild
+    hud.textContent = running ? labelRunning() : 'Filter: pausiert';
+  }
+
+  function labelRunning(){
+    const dir = (mode === 'line-h') ? 'Horizontal' : 'Vertikal';
+    return `Filter: aktiv – ${dir} @ ${Math.round(lineSpeed)} px/s`;
   }
 
   function draw(ts) {
@@ -156,199 +151,138 @@
     const dt = Math.min(100, ts - lastTs)/1000; // s
     lastTs = ts;
 
-    const W = out.width, H = out.height;
-
-    if (mode === 'none') {
-      hud.textContent = 'Filter: Aus';
-      ctx.drawImage(raw, 0, 0, W, H);
-      return;
+    if (running) {
+      step(dt);
     }
+    renderFrame(dt);
+  }
 
-    // Linie bewegen
+  function step(dt) {
+    const W = out.width, H = out.height;
     linePrev = line;
     if (mode === 'line-h') {
       line += lineSpeed * dt;
-      if (line > H) { line = 0; resetLineArt(); }
-      // NEU: freeze-on-pass – nur den neu überstrichenen Streifen in die Akkumulation kopieren
+      if (line > H) { line = 0; accCtx.fillRect(0,0,acc.width,acc.height); } // kompletter Neustart
       const y0 = Math.floor(linePrev), y1 = Math.floor(line);
       if (y1 > y0) {
-        // kopiere den Streifen [y0, y1) aus dem Live-Video dauerhaft in acc
         accCtx.drawImage(raw, 0, y0, W, y1 - y0, 0, y0, W, y1 - y0);
       }
-      // Rendern: oben (eingefroren aus acc), unten live
-      // oben bis y=line
-      if (line > 0) ctx.drawImage(acc, 0, 0, W, line, 0, 0, W, line);
-      // unten live
-      if (line < H) ctx.drawImage(raw, 0, line, W, H - line, 0, line, W, H - line);
-      // Linie zeichnen
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.fillRect(0, Math.floor(line) - 1, W, 2);
-      hud.textContent = 'Filter: Line Art – Horizontal';
     } else {
-      // line-v
       line += lineSpeed * dt;
-      if (line > W) { line = 0; resetLineArt(); }
+      if (line > W) { line = 0; accCtx.fillRect(0,0,acc.width,acc.height); }
       const x0 = Math.floor(linePrev), x1 = Math.floor(line);
       if (x1 > x0) {
-        accCtx.drawImage(raw, x0, 0, x1 - x0, H, x0, 0, x1 - x0, H);
+        accCtx.drawImage(raw, x0, 0, x1 - x0, out.height, x0, 0, x1 - x0, out.height);
       }
+    }
+  }
+
+  function renderFrame() {
+    const W = out.width, H = out.height;
+    if (mode === 'line-h') {
+      // oben: gefroren
+      if (line > 0) ctx.drawImage(acc, 0, 0, W, line, 0, 0, W, line);
+      // unten: live
+      if (line < H) ctx.drawImage(raw, 0, line, W, H - line, 0, line, W, H - line);
+      // Linie
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.fillRect(0, Math.floor(line) - 1, W, 2);
+    } else {
       if (line > 0) ctx.drawImage(acc, 0, 0, line, H, 0, 0, line, H);
       if (line < W) ctx.drawImage(raw, line, 0, W - line, H, line, 0, W - line, H);
       ctx.fillStyle = 'rgba(255,255,255,0.85)';
       ctx.fillRect(Math.floor(line) - 1, 0, 2, H);
-      hud.textContent = 'Filter: Line Art – Vertikal';
     }
   }
 
-  /* -------- Audio (Mic-Filter) -------- */
-  function setupAudio(srcStream) {
-    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    micSource = audioCtx.createMediaStreamSource(srcStream);
-    dest = audioCtx.createMediaStreamDestination();
-    applyMicFilter('none');
+  /* -------- Speichern (JPEG, iPhone-freundlich) -------- */
+  function isiOS(){
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   }
 
-  function clearNodes() {
-    try { micSource.disconnect(); } catch {}
-    for (const n of currentNodes) { try { n.disconnect(); } catch {} }
-    currentNodes = [];
-  }
+  function saveCurrentImage() {
+    // Immer den sichtbaren Canvas-Zustand (inkl. Live-Bereich) speichern
+    out.toBlob(async (blob) => {
+      if (!blob) return;
+      // iOS: am sichersten JPEG
+      const jpg = new Blob([blob], { type: 'image/jpeg' });
+      const file = new File([jpg], 'frame.jpg', { type: 'image/jpeg' });
 
-  function distortionCurve(amount=50) {
-    const n=44100, c=new Float32Array(n), deg=Math.PI/180;
-    for (let i=0;i<n;i++){ const x=(i*2)/n-1; c[i]=(3+amount)*x*20*deg/(Math.PI+amount*Math.abs(x)); }
-    return c;
-  }
-
-  function applyMicFilter(kind) {
-    if (!audioCtx || !micSource || !dest) return;
-    clearNodes();
-
-    const comp = audioCtx.createDynamicsCompressor();
-    comp.threshold.value=-18; comp.knee.value=20; comp.ratio.value=3; comp.attack.value=0.003; comp.release.value=0.25;
-
-    if (kind==='baby') {
-      const hp = audioCtx.createBiquadFilter();  hp.type='highpass'; hp.frequency.value=400; hp.Q.value=0.7;
-      const hs = audioCtx.createBiquadFilter();  hs.type='highshelf'; hs.frequency.value=3000; hs.gain.value=8;
-      const dist = audioCtx.createWaveShaper();  dist.curve=distortionCurve(50); dist.oversample='2x';
-
-      micSource.connect(hp); hp.connect(hs); hs.connect(dist); dist.connect(comp); comp.connect(dest);
-      currentNodes.push(hp,hs,dist,comp);
-    } else if (kind==='smoker') {
-      const lp = audioCtx.createBiquadFilter();  lp.type='lowpass'; lp.frequency.value=1200; lp.Q.value=0.8;
-      const ls = audioCtx.createBiquadFilter();  ls.type='lowshelf'; ls.frequency.value=200;  ls.gain.value=9;
-      const dist = audioCtx.createWaveShaper();  dist.curve=distortionCurve(200); dist.oversample='4x';
-
-      micSource.connect(lp); lp.connect(ls); ls.connect(dist); dist.connect(comp); comp.connect(dest);
-      currentNodes.push(lp,ls,dist,comp);
-    } else {
-      micSource.connect(comp); comp.connect(dest);
-      currentNodes.push(comp);
-    }
-  }
-
-  /* -------- Aufnahme / Speichern (iPhone-freundlich) -------- */
-  async function startRec() {
-    if (!stream) return;
-    if (audioCtx?.state !== 'running') { try { await audioCtx.resume(); } catch {} }
-
-    // Video aus Canvas (inkl. Filter)
-    const fps = 30;
-    const canvasStream = out.captureStream(fps);
-
-    // Audio aus der verarbeiteten Chain
-    const audioTrack = dest?.stream.getAudioTracks()[0];
-
-    outStream = new MediaStream();
-    canvasStream.getVideoTracks().forEach(t => outStream.addTrack(t));
-    if (audioTrack) outStream.addTrack(audioTrack);
-
-    // iOS: erzwinge MP4 (H.264/AAC). Safari 16+ liefert mp4, selbst wenn isTypeSupported false meldet.
-    let mime = isIOS() ? 'video/mp4' : '';
-    if (!mime && window.MediaRecorder) {
-      if (MediaRecorder.isTypeSupported('video/mp4')) mime = 'video/mp4';
-      else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) mime = 'video/webm;codecs=vp9,opus';
-      else mime = 'video/webm;codecs=vp8,opus';
-    }
-
-    chunks = [];
-    try {
-      recorder = new MediaRecorder(outStream, mime ? { mimeType: mime } : undefined);
-    } catch (e) {
-      alert('Aufnahme wird nicht unterstützt: ' + e);
-      return;
-    }
-
-    recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
-    recorder.onstop = () => {
-      // Viele Safari-Builds setzen blob.type nicht sauber → erzwinge MP4 auf iOS
-      const forcedType = isIOS() ? 'video/mp4' : (chunks[0]?.type || 'video/mp4');
-      const blob = new Blob(chunks, { type: forcedType });
-      saveBlobIOSFirst(blob);
-    };
-
-    recorder.start(250);
-    btnStart.disabled = true; btnStop.disabled = false;
-    btnStart.innerHTML = '<span class="rec-dot"></span> Aufnahme läuft…';
-  }
-
-  function stopRec() {
-    if (recorder && recorder.state !== 'inactive') recorder.stop();
-    btnStart.disabled = false; btnStop.disabled = true;
-    btnStart.textContent = '▶︎ Aufnahme';
-  }
-
-  async function saveBlobIOSFirst(blob) {
-    const filename = (isIOS() ? 'aufnahme.mp4' : (blob.type.includes('webm') ? 'aufnahme.webm' : 'aufnahme.mp4'));
-    const file = new File([blob], filename, { type: 'video/mp4' });
-
-    // 1) iOS Share-Sheet (empfohlen) → „Video sichern“
-    try {
-      if (navigator.canShare && navigator.canShare({ files:[file] })) {
-        await navigator.share({ files:[file], title:'Aufnahme', text:'Aufnahme' });
-        return;
-      }
-    } catch {}
-
-    // 2) Download-Fallback (MP4) – landet in „Dateien“; kann von dort in Fotos geteilt werden
-    try {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = filename;
-      document.body.appendChild(a); a.click();
-      setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 1500);
-    } catch (e) {
-      // 3) Letzter Ausweg: In neuem Tab öffnen (iOS zeigt dann Share-Knopf)
+      // 1) Share-Sheet bevorzugt (→ „Bild sichern“)
       try {
-        const url = URL.createObjectURL(blob);
+        if (navigator.canShare && navigator.canShare({ files:[file] })) {
+          await navigator.share({ files:[file], title:'Frame', text:'Exportierter Frame' });
+          return;
+        }
+      } catch {}
+
+      // 2) Download-Fallback
+      try {
+        const url = URL.createObjectURL(jpg);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'frame.jpg';
+        document.body.appendChild(a); a.click();
+        setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 1200);
+        return;
+      } catch {}
+
+      // 3) Letzter Ausweg: in neuem Tab öffnen (iOS zeigt dann „Teilen“)
+      try {
+        const url = URL.createObjectURL(jpg);
         window.open(url, '_blank');
       } catch {}
-    }
+    }, 'image/jpeg', 0.92);
   }
 
-  /* -------- UI Events -------- */
-  vFilter.addEventListener('change', () => {
-    mode = vFilter.value;
+  /* -------- UI -------- */
+  selOrient.addEventListener('change', () => {
+    mode = selOrient.value;
+    // Ausrichtung gewechselt → neu anfangen (klar definiert)
     resetLineArt();
   });
 
-  aFilter.addEventListener('change', () => applyMicFilter(aFilter.value));
+  rngSpeed.addEventListener('input', () => {
+    lineSpeed = parseFloat(rngSpeed.value);
+    speedVal.textContent = Math.round(lineSpeed);
+    if (running) hud.textContent = labelRunning();
+  });
 
-  btnStart.addEventListener('click', startRec);
-  btnStop .addEventListener('click', stopRec);
+  btnStart.addEventListener('click', () => {
+    if (!animId) { lastTs = performance.now(); animId = requestAnimationFrame(draw); }
+    running = true;
+    hud.textContent = labelRunning();
+    btnStart.disabled = true;
+    btnPause.disabled = false;
+  });
 
-  btnFlip.addEventListener('click', async () => {
+  btnPause.addEventListener('click', () => {
+    running = false;
+    hud.textContent = 'Filter: pausiert';
+    btnStart.disabled = false;
+    btnPause.disabled = true;
+  });
+
+  btnReset.addEventListener('click', resetLineArt);
+  btnFlip .addEventListener('click', async () => {
     facingMode = (facingMode === 'user') ? 'environment' : 'user';
     out.classList.toggle('mirror', facingMode === 'user'); // nur Anzeige spiegeln
     await initMedia();
   });
 
+  btnSave.addEventListener('click', saveCurrentImage);
+
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden && (!stream || stream.getVideoTracks().every(t => t.readyState !== 'live'))) initMedia();
   });
 
-  // Autostart
-  initMedia();
+  // Autostart (paused)
+  initMedia().then(()=>{
+    if (!animId) { lastTs = performance.now(); animId = requestAnimationFrame(draw); }
+    running = false;
+    hud.textContent = 'Filter: pausiert';
+    btnStart.disabled = false;
+    btnPause.disabled = true;
+  });
 })();
 </script>
 </body>
