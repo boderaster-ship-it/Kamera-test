@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover"
+  />
+  <title>Dual-Cam Recorder (Front + Back, 50/50)</title>
+  <style>
+    :root { --gap: 10px; }
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+    body { margin: 0; padding: 16px; background: #0f1216; color: #e9eef5; }
+    h1 { font-size: 18px; margin: 0 0 12px 0; }
+    .toolbar {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+      gap: var(--gap);
+      margin: 12px 0 16px 0;
+    }
+    button {
+      padding: 14px 12px;
+      background: #1f2732;
+      color: #e9eef5;
+      border: 1px solid #2b3442;
+      border-radius: 10px;
+      font-size: 15px;
+      touch-action: manipulation;
+    }
+    button:disabled { opacity: .5; }
+    #stage {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16/9; /* sichtbare Vorschau; Aufnahme passt sich intern an */
+      background: #0a0d11;
+      border: 1px solid #2b3442;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    canvas { width: 100%; height: 100%; display: block; }
+    .note {
+      font-size: 12px; opacity: .8; margin-top: 10px; line-height: 1.35;
+    }
+    #playback { width: 100%; margin-top: 12px; border-radius: 12px; display:none; }
+    /* Unsichtbare Roh-Previews (müssen im DOM bleiben, aber nicht sichtbar) */
+    .hidden-streams {
+      position: absolute; inset: 0; pointer-events: none; opacity: 0; height: 0; width: 0;
+    }
+    .links { margin-top: 10px; display:flex; gap:10px; flex-wrap: wrap; }
+    a.dl {
+      color: #9cd2ff; text-decoration: none; border: 1px dashed #2b3442; padding: 6px 10px; border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Dual-Cam Recorder (iPhone • Front + Back • 50/50)</h1>
+
+  <div class="toolbar">
+    <button id="startBtn">▶️ Start Aufnahme</button>
+    <button id="pauseBtn" disabled>⏸️ Pause</button>
+    <button id="resumeBtn" disabled>⏯️ Play (Fortsetzen)</button>
+    <button id="stopBtn" disabled>⏹️ Stop / Speichern</button>
+  </div>
+
+  <div id="stage">
+    <canvas id="mix"></canvas>
+    <!-- Roh-Videoelemente für die zwei Kameras (unsichtbar) -->
+    <div class="hidden-streams">
+      <video id="vFront" playsinline muted></video>
+      <video id="vBack"  playsinline muted></video>
+    </div>
+  </div>
+
+  <video id="playback" controls></video>
+  <div class="links" id="links"></div>
+
+  <p class="note">
+    Hinweise (im Code bereits berücksichtigt): iOS Safari benötigt eine Nutzer-Interaktion zum Starten. Es wird versucht,
+    gleichzeitig Front- und Back-Kamera zu öffnen. Das Bild wird in einer Leinwand (Canvas) live 50/50 nebeneinander gemischt und als ein Video aufgezeichnet.
+    Audio wird vom Back-Stream übernommen (falls verfügbar). <br>
+    Falls eine der Kameras vom Browser/Hardware blockiert wird, erscheint eine Fehlermeldung.
+  </p>
+
+  <script>
+    const startBtn  = document.getElementById('startBtn');
+    const pauseBtn  = document.getElementById('pauseBtn');
+    const resumeBtn = document.getElementById('resumeBtn');
+    const stopBtn   = document.getElementById('stopBtn');
+
+    const vFront = document.getElementById('vFront'); // facingMode: user
+    const vBack  = document.getElementById('vBack');  // facingMode: environment
+    const canvas = document.getElementById('mix');
+    const ctx    = canvas.getContext('2d');
+    const playback = document.getElementById('playback');
+    const linksBox = document.getElementById('links');
+
+    let frontStream = null;
+    let backStream  = null;
+    let drawRAF     = null;
+
+    let rec           = null;
+    let recordedBlobs = [];
+    let recordingStream = null; // Canvas Video + 1× Audio
+
+    // wählt das beste MIME für MediaRecorder aus
+    function chooseMimeType() {
+      const candidates = [
+        'video/mp4;codecs=h264,aac',
+        'video/mp4', // Safari iOS bevorzugt dies
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
+        'video/webm'
+      ];
+      for (const t of candidates) {
+        if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) {
+          return t;
+        }
+      }
+      return ''; // Browser wählt selbst
+    }
+
+    function setButtons(state) {
+      // states: idle, recording, paused, stopped
+      if (state === 'idle') {
+        startBtn.disabled  = false;
+        pauseBtn.disabled  = true;
+        resumeBtn.disabled = true;
+        stopBtn.disabled   = true;
+      } else if (state === 'recording') {
+        startBtn.disabled  = true;
+        pauseBtn.disabled  = false;
+        resumeBtn.disabled = true;
+        stopBtn.disabled   = false;
+      } else if (state === 'paused') {
+        startBtn.disabled  = true;
+        pauseBtn.disabled  = true;
+        resumeBtn.disabled = false;
+        stopBtn.disabled   = false;
+      } else if (state === 'stopped') {
+        startBtn.disabled  = false;
+        pauseBtn.disabled  = true;
+        resumeBtn.disabled = true;
+        stopBtn.disabled   = true;
+      }
+    }
+
+    function drawCover(dctx, video, dx, dy, dw, dh) {
+      const vw = video.videoWidth  || 0;
+      const vh = video.videoHeight || 0;
+      if (!vw || !vh) return;
+      const vr = vw / vh;
+      const dr = dw / dh;
+      let sx, sy, sw, sh;
+      if (vr > dr) {
+        // Video breiter als Ziel – Breite croppen
+        sh = vh;
+        sw = vh * dr;
+        sx = (vw - sw) / 2;
+        sy = 0;
+      } else {
+        // Video höher – Höhe croppen
+        sw = vw;
+        sh = vw / dr;
+        sx = 0;
+        sy = (vh - sh) / 2;
+      }
+      dctx.drawImage(video, sx, sy, sw, sh, dx, dy, dw, dh);
+    }
+
+    function startDrawLoop() {
+      cancelAnimationFrame(drawRAF);
+      const draw = () => {
+        const width  = canvas.width;
+        const height = canvas.height;
+        // schwarzer Hintergrund
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, width, height);
+
+        // 50/50 horizontal
+        const halfW = Math.floor(width / 2);
+        drawCover(ctx, vFront, 0,      0, halfW, height); // links: Front
+        drawCover(ctx, vBack,  halfW,  0, width - halfW, height); // rechts: Back
+
+        // dünne Trennlinie (optional)
+        ctx.fillStyle = 'rgba(255,255,255,.12)';
+        ctx.fillRect(halfW - 1, 0, 2, height);
+
+        drawRAF = requestAnimationFrame(draw);
+      };
+      draw();
+    }
+
+    function stopDrawLoop() {
+      cancelAnimationFrame(drawRAF);
+      drawRAF = null;
+    }
+
+    function setCanvasSize() {
+      // Konservatives Default (passt gut auf iPhone): 1920x1080 in Landscape
+      // Bei Portrait bleibt die sichtbare Fläche dank CSS responsiv.
+      const targetW = 1920;
+      const targetH = 1080;
+      canvas.width  = targetW;
+      canvas.height = targetH;
+    }
+
+    async function initStreams() {
+      // Back-Kamera mit Audio (Mikro)
+      backStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { exact: 'environment' }, // erzwinge Rückkamera
+          width:  { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30, max: 30 }
+        },
+        audio: true
+      });
+
+      // Front-Kamera ohne Audio (nur Bild)
+      // (Falls gleichzeitiger Zugriff auf beide Kameras scheitert, wirft dieser Block)
+      try {
+        frontStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { exact: 'user' },
+            width:  { ideal: 1920 },
+            height: { ideal: 1080 },
+            frameRate: { ideal: 30, max: 30 }
+          },
+          audio: false
+        });
+      } catch (e) {
+        // Fallback: Versuch ohne exact (manche Browser brauchen nur 'user')
+        if (e.name === 'OverconstrainedError' || e.name === 'NotReadableError' || e.name === 'NotFoundError') {
+          frontStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user' },
+            audio: false
+          });
+        } else {
+          throw e;
+        }
+      }
+
+      vFront.srcObject = frontStream;
+      vBack.srcObject  = backStream;
+
+      await Promise.all([vFront.play().catch(()=>{}), vBack.play().catch(()=>{})]);
+    }
+
+    function buildRecordingStream() {
+      // Video aus Canvas
+      const canvasFps = 30;
+      const mixedVideo = canvas.captureStream(canvasFps);
+      // Audio: nimm erstes Audiotrack der Back-Kamera, falls vorhanden
+      const audioTrack = backStream.getAudioTracks()[0];
+      const ms = new MediaStream();
+      mixedVideo.getVideoTracks().forEach(t => ms.addTrack(t));
+      if (audioTrack) ms.addTrack(audioTrack);
+      return ms;
+    }
+
+    function resetPlaybackAndLinks() {
+      playback.pause();
+      playback.removeAttribute('src');
+      playback.style.display = 'none';
+      linksBox.innerHTML = '';
+      recordedBlobs = [];
+    }
+
+    function saveBlob(blob, extHint = 'mp4') {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const ext = blob.type.includes('webm') ? 'webm' : (blob.type.includes('mp4') ? 'mp4' : extHint);
+      a.href = url;
+      a.download = `DualCam_${ts}.${ext}`;
+      a.className = 'dl';
+      a.textContent = `📥 Video speichern (${ext.toUpperCase()})`;
+      linksBox.appendChild(a);
+
+      // Sofortige Vorschau:
+      playback.src = url;
+      playback.style.display = 'block';
+    }
+
+    startBtn.addEventListener('click', async () => {
+      setButtons('idle');
+      resetPlaybackAndLinks();
+      try {
+        await initStreams();
+      } catch (err) {
+        alert('Konnte nicht auf beide Kameras zugreifen.\n' + (err?.message || err));
+        console.error(err);
+        return;
+      }
+
+      setCanvasSize();
+      startDrawLoop();
+
+      recordingStream = buildRecordingStream();
+
+      const mimeType = chooseMimeType();
+      try {
+        rec = new MediaRecorder(recordingStream, mimeType ? { mimeType } : {});
+      } catch (err) {
+        alert('MediaRecorder wird nicht unterstützt oder konnte nicht initialisiert werden.\n' + (err?.message || err));
+        console.error(err);
+        stopDrawLoop();
+        return;
+      }
+
+      rec.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) recordedBlobs.push(e.data);
+      };
+      rec.onstop = () => {
+        const blob = new Blob(recordedBlobs, { type: rec.mimeType || 'video/mp4' });
+        saveBlob(blob);
+        // Streams sauber beenden
+        [frontStream, backStream, recordingStream].forEach(s => {
+          if (s) s.getTracks().forEach(t => t.stop());
+        });
+        frontStream = backStream = recordingStream = null;
+        stopDrawLoop();
+        setButtons('stopped');
+      };
+
+      rec.start(1000); // sammle Daten im 1s-Takt
+      setButtons('recording');
+    });
+
+    pauseBtn.addEventListener('click', () => {
+      if (rec && rec.state === 'recording') {
+        try { rec.pause(); setButtons('paused'); } catch {}
+      }
+    });
+
+    resumeBtn.addEventListener('click', () => {
+      if (rec && rec.state === 'paused') {
+        try { rec.resume(); setButtons('recording'); } catch {}
+      }
+    });
+
+    stopBtn.addEventListener('click', () => {
+      if (rec && (rec.state === 'recording' || rec.state === 'paused')) {
+        try { rec.stop(); } catch {}
+      }
+    });
+
+    // Sicherheitsnetz beim Seitenwechsel
+    window.addEventListener('pagehide', () => {
+      try { if (rec && rec.state !== 'inactive') rec.stop(); } catch {}
+      [frontStream, backStream, recordingStream].forEach(s => {
+        if (s) s.getTracks().forEach(t => t.stop());
+      });
+      stopDrawLoop();
+    });
+  </script>
+</body>
+</html>
