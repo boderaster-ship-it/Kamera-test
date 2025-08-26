@@ -1,323 +1,463 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="de">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>iPhone Dual-Cam Recorder (50/50)</title>
+  <title>Kamera App – Live-Filter + Aufnahme</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <style>
-    :root { --gap: 10px; }
-    * { box-sizing: border-box; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
-    html, body { height: 100%; }
-    body {
-      margin: 0;
-      padding: env(safe-area-inset-top) env(safe-area-inset-right)
-               env(safe-area-inset-bottom) env(safe-area-inset-left);
-      background: #0b0f14; color: #e9eef5;
-      overscroll-behavior: none;
-      -webkit-touch-callout: none; -webkit-user-select: none; user-select: none;
-      touch-action: manipulation; /* kein Doppeltipp-Zoom */
+    :root { --ui-gap: 12px; --btn-size: 56px; --radius: 14px; --bg:#0b0b0b; --panel:#141414; --text:#fff; --muted:#9aa0a6; }
+    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    .app {
+      height: 100%; display: grid; grid-template-rows: 1fr auto; gap: var(--ui-gap);
+      padding: env(safe-area-inset-top) var(--ui-gap) calc(env(safe-area-inset-bottom) + var(--ui-gap)) var(--ui-gap);
     }
-    h1 { font-size: 16px; margin: 0 0 8px; opacity: .95; }
-    .toolbar {
-      display: grid; grid-template-columns: repeat(4,1fr); gap: var(--gap);
-      position: sticky; top: env(safe-area-inset-top); z-index: 3;
+    .stage {
+      position: relative; overflow: hidden; border-radius: var(--radius);
+      background: #000; box-shadow: 0 0 0 1px #222 inset;
     }
-    button {
-      padding: 14px 12px; border-radius: 12px;
-      border: 1px solid #2b3442; background: #1b2330; color: #e9eef5;
-      font-size: 15px; touch-action: manipulation;
+    video, canvas {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      object-fit: cover;
     }
-    button:disabled { opacity: .5; }
-    #stage {
-      position: relative; width: 100%; aspect-ratio: 16/9;
-      background: #000; border: 1px solid #2b3442; border-radius: 14px;
-      overflow: hidden; margin-top: 12px;
+    /* Spiegel-Effekt für Frontkamera-Feeling (nur Anzeige) */
+    .mirror {
+      transform: scaleX(-1);
     }
-    canvas { width: 100%; height: 100%; display: block; }
-    .hidden {
-      position: absolute; inset: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none;
+    .hud {
+      position: absolute; left: 0; right: 0; top: 0;
+      display: flex; gap: 8px; padding: 8px; align-items: center; justify-content: center;
+      pointer-events: none;
     }
-    #playback { width: 100%; margin-top: 12px; border-radius: 12px; display:none; }
-    .links { margin-top: 10px; display:flex; gap:10px; flex-wrap: wrap; }
-    a.dl { color: #9cd2ff; text-decoration: none; border: 1px dashed #2b3442; padding: 6px 10px; border-radius: 8px; }
-    .note { font-size: 12px; opacity: .85; margin-top: 8px; line-height: 1.35; min-height: 1.35em; }
-    /* Edge-Guards: fangen Randswipes, ohne Klicks zu blocken */
-    .edge-guard { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
-    .edge-guard > div { position: absolute; pointer-events: auto; background: transparent; }
-    .edge-guard .top    { left:0; right:0; top:0;    height: max(env(safe-area-inset-top), 8px); }
-    .edge-guard .bottom { left:0; right:0; bottom:0; height: calc(max(env(safe-area-inset-bottom), 8px) + 6px); }
-    .edge-guard .left   { left:0; top:0; bottom:0;   width: 6px; }
-    .edge-guard .right  { right:0; top:0; bottom:0;  width: 6px; }
+    .line-indicator {
+      font: 600 12px/1 system-ui; color: #fff; background: rgba(0,0,0,.35);
+      padding: 6px 10px; border-radius: 999px; pointer-events: auto;
+      backdrop-filter: blur(4px);
+    }
+    .controls {
+      display: grid; gap: var(--ui-gap);
+      grid-template-columns: 1fr 1fr;
+    }
+    .panel {
+      background: var(--panel); border-radius: var(--radius);
+      padding: var(--ui-gap); display: grid; gap: var(--ui-gap);
+    }
+    .row { display: grid; gap: 8px; }
+    label { font-size: 13px; color: var(--muted) }
+    select, button {
+      width: 100%; font-size: 16px; padding: 12px 14px; border-radius: 12px; border: 1px solid #2a2a2a; background: #111; color: #fff;
+    }
+    button.primary { background: #0a84ff; border-color: #0a84ff; font-weight: 700 }
+    button.danger  { background: #ff453a; border-color: #ff453a; font-weight: 700 }
+    button:disabled { opacity: .6 }
+    .rec-dot {
+      width: 10px; height: 10px; border-radius: 999px; background: #ff453a; display: inline-block; margin-right: 8px; vertical-align: middle; box-shadow: 0 0 0 2px rgba(255,69,58,.25);
+      animation: pulse 1s infinite ease-in-out;
+    }
+    @keyframes pulse { 0%,100%{opacity:.35} 50%{opacity:1} }
+    .fineprint { font-size: 12px; color: var(--muted); text-align: center; }
   </style>
 </head>
 <body>
-  <h1>Dual-Cam Recorder (Front + Back • 50/50)</h1>
+<div class="app">
+  <div class="stage" id="stage">
+    <!-- Roh-Vorschau (unsichtbar) -->
+    <video id="rawVideo" playsinline muted autoplay></video>
+    <!-- Gerenderter Output (sichtbar + aufgezeichnet) -->
+    <canvas id="outCanvas" class="mirror"></canvas>
 
-  <div class="toolbar">
-    <button id="startBtn">▶️ Start</button>
-    <button id="pauseBtn" disabled>⏸️ Pause</button>
-    <button id="resumeBtn" disabled>⏯️ Play</button>
-    <button id="stopBtn" disabled>⏹️ Stop = Speichern</button>
-  </div>
-
-  <div id="stage">
-    <canvas id="mix"></canvas>
-    <div class="hidden">
-      <video id="vFront" playsinline muted></video>
-      <video id="vBack"  playsinline muted></video>
+    <div class="hud">
+      <span class="line-indicator" id="lineHud">Filter: Aus</span>
     </div>
   </div>
 
-  <video id="playback" controls></video>
-  <div class="links" id="links"></div>
-  <p class="note" id="info"></p>
+  <div class="controls">
+    <div class="panel">
+      <div class="row">
+        <label for="videoFilter">Video-Filter (Live + Aufnahme)</label>
+        <select id="videoFilter">
+          <option value="none">Aus</option>
+          <option value="line-h">Line Art – Horizontal</option>
+          <option value="line-v">Line Art – Vertikal</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="micFilter">Mikrofon-Filter (Aufnahme)</label>
+        <select id="micFilter">
+          <option value="none">Aus</option>
+          <option value="baby">Baby</option>
+          <option value="smoker">Extremer Raucher</option>
+        </select>
+      </div>
+      <div class="row">
+        <div class="fineprint">
+          Hinweis: „Stop“ öffnet das iOS-Share-Sheet. Dort „Video sichern“ wählen, um in <b>Fotos</b> zu speichern.
+        </div>
+      </div>
+    </div>
 
-  <!-- Edge Guards -->
-  <div class="edge-guard" aria-hidden="true">
-    <div class="top"></div><div class="bottom"></div><div class="left"></div><div class="right"></div>
+    <div class="panel">
+      <div class="row" style="grid-template-columns: 1fr 1fr; display: grid; gap: var(--ui-gap);">
+        <button id="startBtn" class="primary">▶︎ Aufnahme</button>
+        <button id="stopBtn" class="danger" disabled>■ Stop &amp; Sichern</button>
+      </div>
+      <div class="row">
+        <button id="flipBtn" title="Vorder-/Rückkamera umschalten">Kamera wechseln</button>
+      </div>
+    </div>
   </div>
+</div>
 
-  <script>
-    /* ========= Elemente ========= */
-    const startBtn  = document.getElementById('startBtn');
-    const pauseBtn  = document.getElementById('pauseBtn');
-    const resumeBtn = document.getElementById('resumeBtn');
-    const stopBtn   = document.getElementById('stopBtn');
+<script>
+(() => {
+  const videoEl = document.getElementById('rawVideo');
+  const canvas  = document.getElementById('outCanvas');
+  const ctx     = canvas.getContext('2d', { alpha: false });
+  const videoFilterSel = document.getElementById('videoFilter');
+  const micFilterSel   = document.getElementById('micFilter');
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn  = document.getElementById('stopBtn');
+  const flipBtn  = document.getElementById('flipBtn');
+  const lineHud  = document.getElementById('lineHud');
 
-    const vFront = document.getElementById('vFront');
-    const vBack  = document.getElementById('vBack');
-    const canvas = document.getElementById('mix');
-    const ctx    = canvas.getContext('2d');
-    const playback = document.getElementById('playback');
-    const linksBox = document.getElementById('links');
-    const info     = document.getElementById('info');
+  let stream = null;                // Original getUserMedia Stream (Video+Audio)
+  let facingMode = 'user';          // 'user' (Front) oder 'environment' (Rück)
+  let animationId = null;
+  let lastTs = 0;
 
-    /* ========= State ========= */
-    let frontStream = null, backStream = null, recordingStream = null;
-    let drawRAF = null, rec = null, recordedBlobs = [];
-    let wakeLock = null;
+  // --- Line Art Filter State ---
+  let vfMode = 'none';              // 'none' | 'line-h' | 'line-v'
+  let linePos = 0;                  // aktuelle Linienposition
+  const lineSpeed = 50;             // px/sek
+  let frozenCanvas = document.createElement('canvas');
+  let frozenCtx    = frozenCanvas.getContext('2d', { alpha: false });
+  let needFreezeUpdate = true;
 
-    /* ========= Helpers ========= */
-    function note(msg){ info.textContent = msg || ''; }
+  // --- Audio Processing ---
+  let audioCtx = null;
+  let micSource = null;
+  let micDestination = null;        // MediaStreamDestination -> für Aufnahme
+  let currentNodes = [];            // aktuell verkettete Nodes im Mic-Chain
 
-    function setButtons(state) {
-      const disabled = { start:false, pause:true, resume:true, stop:true };
-      if (state === 'idle')      Object.assign(disabled,{ start:false, pause:true,  resume:true,  stop:true });
-      if (state === 'recording') Object.assign(disabled,{ start:true,  pause:false, resume:true,  stop:false });
-      if (state === 'paused')    Object.assign(disabled,{ start:true,  pause:true,  resume:false, stop:false });
-      if (state === 'stopped')   Object.assign(disabled,{ start:false, pause:true,  resume:true,  stop:true });
-      startBtn.disabled  = disabled.start;
-      pauseBtn.disabled  = disabled.pause;
-      resumeBtn.disabled = disabled.resume;
-      stopBtn.disabled   = disabled.stop;
+  // --- Recording ---
+  let recorder = null;
+  let recordedChunks = [];
+  let outStream = null;             // Kombinierter Stream: Canvas-Video + Processed-Audio
+
+  // Helpers
+  function isIOS() {
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  }
+  function setHud(text) {
+    lineHud.textContent = text;
+  }
+
+  // Startet Kamera (Front default) + Mikro
+  async function initMedia() {
+    if (stream) {
+      stream.getTracks().forEach(t => t.stop());
+      stream = null;
     }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode,
+          width: { ideal: 1280 },
+          height:{ ideal: 720 }
+        },
+        audio: true
+      });
+      videoEl.srcObject = stream;
+      await videoEl.play().catch(()=>{});
+      // Canvas-Größe an Video anpassen
+      await waitForVideoReady();
+      resizeCanvases();
+      needFreezeUpdate = true;
 
-    function setCanvasSize(){ canvas.width = 1920; canvas.height = 1080; }
+      // Audio-Kette vorbereiten
+      setupAudioPipeline(stream);
 
-    function drawCover(dctx, video, dx, dy, dw, dh) {
-      const vw = video.videoWidth|0, vh = video.videoHeight|0;
-      if (!vw || !vh) return;
-      const vr = vw/vh, dr = dw/dh;
-      let sx,sy,sw,sh;
-      if (vr > dr) { sh = vh; sw = vh*dr; sx = (vw-sw)/2; sy = 0; }
-      else { sw = vw; sh = vw/dr; sx = 0; sy = (vh-sh)/2; }
-      dctx.drawImage(video, sx,sy,sw,sh, dx,dy,dw,dh);
+      // Zeichen-Loop starten (falls nicht schon läuft)
+      if (!animationId) {
+        lastTs = performance.now();
+        drawLoop(lastTs);
+      }
+    } catch (err) {
+      alert('Kamera/Mikrofon konnten nicht geöffnet werden:\n' + err);
+      console.error(err);
     }
+  }
 
-    function startDrawLoop(){
-      cancelAnimationFrame(drawRAF);
-      const loop = () => {
-        const W=canvas.width, H=canvas.height, half=W>>1;
-        ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
-        drawCover(ctx, vFront, 0, 0, half, H);
-        drawCover(ctx, vBack,  half, 0, W-half, H);
-        ctx.fillStyle='rgba(255,255,255,.12)'; ctx.fillRect(half-1, 0, 2, H);
-        drawRAF = requestAnimationFrame(loop);
-      };
-      loop();
-    }
-    function stopDrawLoop(){ cancelAnimationFrame(drawRAF); drawRAF=null; }
+  function waitForVideoReady() {
+    return new Promise(resolve => {
+      if (videoEl.videoWidth > 0 && videoEl.videoHeight > 0) return resolve();
+      videoEl.addEventListener('loadedmetadata', () => resolve(), { once: true });
+    });
+  }
 
-    async function lockWake(){ try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch {} }
-    function releaseWake(){ try{ wakeLock && wakeLock.release(); }catch{} wakeLock=null; }
+  function resizeCanvases() {
+    const vw = videoEl.videoWidth || 1280;
+    const vh = videoEl.videoHeight || 720;
+    // Canvas auf Videogröße setzen
+    canvas.width  = vw;
+    canvas.height = vh;
+    frozenCanvas.width  = vw;
+    frozenCanvas.height = vh;
+    // Stage füllt Container (CSS skaliert)
+  }
 
-    function chooseMimeType() {
-      const list = [
-        'video/mp4;codecs=h264,aac',
-        'video/mp4',
-        'video/webm;codecs=vp9,opus',
-        'video/webm;codecs=vp8,opus',
-        'video/webm'
-      ];
-      for (const t of list) if (MediaRecorder.isTypeSupported?.(t)) return t;
-      return '';
-    }
+  function captureFreezeFrame() {
+    frozenCtx.drawImage(videoEl, 0, 0, frozenCanvas.width, frozenCanvas.height);
+    needFreezeUpdate = false;
+  }
 
-    function resetOutput(){
-      playback.pause(); playback.removeAttribute('src'); playback.style.display='none';
-      linksBox.innerHTML=''; recordedBlobs.length=0;
-    }
+  function drawLoop(ts) {
+    animationId = requestAnimationFrame(drawLoop);
+    const dt = Math.min(100, ts - lastTs) / 1000; // Sekunden (clamped)
+    lastTs = ts;
 
-    function cleanupStreams(){
-      [frontStream, backStream, recordingStream].forEach(s=>s && s.getTracks().forEach(t=>t.stop()));
-      frontStream = backStream = recordingStream = null;
-    }
+    const w = canvas.width, h = canvas.height;
 
-    function buildRecordingStream() {
-      const mixedVideo = canvas.captureStream(30);
-      const out = new MediaStream();
-      mixedVideo.getVideoTracks().forEach(t => out.addTrack(t));
-      const mic = backStream?.getAudioTracks?.()[0];
-      if (mic) out.addTrack(mic);
-      return out;
-    }
-
-    function offerShareToPhotos(blob){
-      const fileName = `DualCam_${new Date().toISOString().replace(/[:.]/g,'-')}.mp4`;
-      const file = new File([blob], fileName, { type: blob.type || 'video/mp4' });
-      if (navigator.canShare?.({ files:[file] }) && navigator.share) {
-        navigator.share({ files:[file], title:'Dual-Cam Aufnahme', text:'Gespeicherte Aufnahme' })
-          .catch(()=>{ /* Abbruch ignorieren */ });
+    if (vfMode === 'none') {
+      // Live-Frame 1:1
+      ctx.drawImage(videoEl, 0, 0, w, h);
+      setHud('Filter: Aus');
+    } else {
+      if (needFreezeUpdate) captureFreezeFrame();
+      // Linie fortbewegen
+      if (vfMode === 'line-h') {
+        linePos += lineSpeed * dt;
+        if (linePos > h) {
+          linePos = 0;
+          needFreezeUpdate = true; // neue Freeze-Basis für nächste Sweep
+        }
+        // Oberhalb: gefroren
+        if (linePos > 0) ctx.drawImage(frozenCanvas, 0, 0, w, linePos, 0, 0, w, linePos);
+        // Unterhalb: live
+        if (linePos < h) ctx.drawImage(videoEl, 0, linePos, w, h - linePos, 0, linePos, w, h - linePos);
+        // Linie zeichnen
+        ctx.fillStyle = 'rgba(255,255,255,0.8)';
+        ctx.fillRect(0, Math.floor(linePos) - 1, w, 2);
+        setHud('Filter: Line Art – Horizontal');
       } else {
+        // line-v
+        linePos += lineSpeed * dt;
+        if (linePos > w) {
+          linePos = 0;
+          needFreezeUpdate = true;
+        }
+        // Links: gefroren
+        if (linePos > 0) ctx.drawImage(frozenCanvas, 0, 0, linePos, h, 0, 0, linePos, h);
+        // Rechts: live
+        if (linePos < w) ctx.drawImage(videoEl, linePos, 0, w - linePos, h, linePos, 0, w - linePos, h);
+        // Linie zeichnen
+        ctx.fillStyle = 'rgba(255,255,255,0.8)';
+        ctx.fillRect(Math.floor(linePos) - 1, 0, 2, h);
+        setHud('Filter: Line Art – Vertikal');
+      }
+    }
+  }
+
+  // Audio Processing: erstellt/aktualisiert die Effektkette
+  function setupAudioPipeline(srcStream) {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    // Quelle (Mikro aus getUserMedia)
+    micSource = audioCtx.createMediaStreamSource(srcStream);
+    // Ziel für Aufnahme
+    micDestination = audioCtx.createMediaStreamDestination();
+    // Standard: keine Effekte
+    applyMicFilterChain('none');
+  }
+
+  function clearCurrentNodes() {
+    try { micSource.disconnect(); } catch {}
+    currentNodes.forEach(n => { try { n.disconnect(); } catch {} });
+    currentNodes = [];
+  }
+
+  function applyMicFilterChain(mode) {
+    if (!audioCtx || !micSource || !micDestination) return;
+    clearCurrentNodes();
+
+    // Immer mit leichter Kompression am Ende für Pegel-Kohärenz
+    const comp = audioCtx.createDynamicsCompressor();
+    comp.threshold.value = -18;
+    comp.knee.value = 20;
+    comp.ratio.value = 3;
+    comp.attack.value = 0.003;
+    comp.release.value = 0.25;
+
+    if (mode === 'baby') {
+      const hp = audioCtx.createBiquadFilter();
+      hp.type = 'highpass'; hp.frequency.value = 400; hp.Q.value = 0.7;
+
+      const shelf = audioCtx.createBiquadFilter();
+      shelf.type = 'highshelf'; shelf.frequency.value = 3000; shelf.gain.value = 8;
+
+      // sanfte Sättigung
+      const dist = audioCtx.createWaveShaper();
+      dist.curve = makeDistortionCurve(50); dist.oversample = '2x';
+
+      // chain: src -> HP -> HighShelf -> Dist -> Comp -> Dest
+      micSource.connect(hp); hp.connect(shelf); shelf.connect(dist); dist.connect(comp); comp.connect(micDestination);
+
+      currentNodes.push(hp, shelf, dist, comp);
+    } else if (mode === 'smoker') {
+      const lp = audioCtx.createBiquadFilter();
+      lp.type = 'lowpass'; lp.frequency.value = 1200; lp.Q.value = 0.8;
+
+      const low = audioCtx.createBiquadFilter();
+      low.type = 'lowshelf'; low.frequency.value = 200; low.gain.value = 9;
+
+      const dist = audioCtx.createWaveShaper();
+      dist.curve = makeDistortionCurve(200); dist.oversample = '4x';
+
+      micSource.connect(lp); lp.connect(low); low.connect(dist); dist.connect(comp); comp.connect(micDestination);
+
+      currentNodes.push(lp, low, dist, comp);
+    } else {
+      // none: src -> comp -> dest
+      micSource.connect(comp); comp.connect(micDestination);
+      currentNodes.push(comp);
+    }
+  }
+
+  // Einfaches Distortion-Kurven-Helferlein
+  function makeDistortionCurve(amount = 50) {
+    const n_samples = 44100;
+    const curve = new Float32Array(n_samples);
+    const deg = Math.PI / 180;
+    for (let i = 0; i < n_samples; ++i) {
+      let x = (i * 2) / n_samples - 1;
+      curve[i] = (3 + amount) * x * 20 * deg / (Math.PI + amount * Math.abs(x));
+    }
+    return curve;
+  }
+
+  // Aufnahme starten (Canvas-Stream + verarbeitete Audio-Spur)
+  async function startRecording() {
+    if (!stream) return;
+
+    // iOS: AudioContext muss per User-Geste gestartet werden
+    if (audioCtx && audioCtx.state !== 'running') {
+      await audioCtx.resume().catch(()=>{});
+    }
+
+    // Video aus Canvas
+    const fps = 30;
+    const canvasStream = canvas.captureStream(fps);
+
+    // Audio aus unserer Destination
+    const audioTrack = micDestination?.stream.getAudioTracks()[0];
+    outStream = new MediaStream();
+    canvasStream.getVideoTracks().forEach(t => outStream.addTrack(t));
+    if (audioTrack) outStream.addTrack(audioTrack);
+
+    recordedChunks = [];
+    let mime = '';
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported('video/mp4;codecs=h264,aac')) {
+      mime = 'video/mp4;codecs=h264,aac';
+    } else if (window.MediaRecorder && MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) {
+      mime = 'video/webm;codecs=vp9,opus';
+    } else {
+      mime = 'video/webm;codecs=vp8,opus';
+    }
+
+    try {
+      recorder = new MediaRecorder(outStream, { mimeType: mime, videoBitsPerSecond: 6_000_000, audioBitsPerSecond: 128_000 });
+    } catch (e) {
+      alert('Aufnahme nicht unterstützt: ' + e);
+      return;
+    }
+
+    recorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedChunks.push(e.data); };
+    recorder.onstop = () => {
+      const blob = new Blob(recordedChunks, { type: mime || 'video/mp4' });
+      saveBlobToPhotos(blob);
+    };
+    recorder.start(250); // alle 250ms Chunk
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+    startBtn.innerHTML = '<span class="rec-dot"></span> Aufnahme läuft…';
+  }
+
+  function stopRecording() {
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.stop();
+    }
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    startBtn.textContent = '▶︎ Aufnahme';
+  }
+
+  async function saveBlobToPhotos(blob) {
+    // iOS: Share Sheet anbieten -> „Video sichern“ speichert in Fotos
+    const filename = (blob.type.includes('mp4') ? 'aufnahme.mp4' : 'aufnahme.webm');
+    const file = new File([blob], filename, { type: blob.type });
+
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Aufnahme', text: 'Aufnahme gespeichert' });
+      } else {
+        // Fallback: Download-Link
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url; a.download = fileName; a.className='dl';
-        a.textContent = '📥 Video laden / teilen';
-        linksBox.appendChild(a);
-        playback.src = url; playback.style.display='block';
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click();
+        setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+        alert('Falls kein Share-Sheet erscheint, wurde eine Datei heruntergeladen. In „Dateien“ oder „Downloads“ öffnen und ggf. in Fotos sichern.');
       }
+    } catch (err) {
+      // Wenn Nutzer Share abbricht, trotzdem Download anbieten
+      try {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click();
+        setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+      } catch {}
     }
+  }
 
-    /* ========= Kamera-Init in zwei Phasen (fix für „zweimal Front“) =========
-       1) Erst Rückkamera öffnen (Audio + Video) -> Berechtigung -> enumerateDevices liefert Labels.
-       2) Danach explizit eine *andere* Kamera (Front) via deviceId öffnen.
-       Fällt die zweite Kamera weg => klarer Hinweis. */
-    async function openBackThenFront() {
-      // 1) Rückkamera mit Audio
-      backStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal:'environment' } }, audio: true
-      });
-      vBack.srcObject = backStream;
-      await vBack.play().catch(()=>{});
+  // UI-Events
+  videoFilterSel.addEventListener('change', () => {
+    vfMode = videoFilterSel.value;
+    linePos = 0;
+    needFreezeUpdate = true;
+  });
 
-      // 2) Jetzt Geräte mit Labels erfragen
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const cams = devices.filter(d => d.kind === 'videoinput');
+  micFilterSel.addEventListener('change', () => {
+    applyMicFilterChain(micFilterSel.value);
+  });
 
-      // bevorzugt Kamera, die NICHT dieselbe deviceId wie backStream hat
-      const backId = backStream.getVideoTracks()[0]?.getSettings?.().deviceId;
-      // Front-Kandidaten: label enthält "front"/"user", sonst beliebige andere als backId
-      let frontDevice = cams.find(c => /front|user/i.test(c.label) && c.deviceId !== backId)
-                      || cams.find(c => c.deviceId !== backId)
-                      || cams[0];
+  startBtn.addEventListener('click', startRecording);
+  stopBtn.addEventListener('click', stopRecording);
 
-      // 3) Front ohne Audio öffnen; wenn deviceId scheitert -> facingMode Fallback
-      try {
-        if (frontDevice) {
-          frontStream = await navigator.mediaDevices.getUserMedia({
-            video: { deviceId: { exact: frontDevice.deviceId } }, audio: false
-          });
-        } else {
-          throw new Error('No distinct front device found');
-        }
-      } catch {
-        // Fallback (kann auf iOS trotzdem scheitern, wenn Parallelzugriff gesperrt ist)
-        frontStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal:'user' } }, audio: false
-        });
-      }
+  flipBtn.addEventListener('click', async () => {
+    facingMode = (facingMode === 'user') ? 'environment' : 'user';
+    // Spiegelung nur bei Front aktiv
+    canvas.classList.toggle('mirror', facingMode === 'user');
+    await initMedia();
+  });
 
-      vFront.srcObject = frontStream;
-      await vFront.play().catch(()=>{});
+  // Orientation/Resize-Handling (Canvas wird nur skaliert; interne Größe bleibt Videogröße)
+  window.addEventListener('resize', () => {
+    // Nur Anzeige ändert sich – nichts zu tun
+  });
 
-      // Prüfen ob beide wirklich „live“ sind
-      const fOK = frontStream?.getVideoTracks?.()[0]?.readyState === 'live';
-      const bOK = backStream?.getVideoTracks?.()[0]?.readyState === 'live';
-      if (!fOK || !bOK) {
-        note('Hinweis: iOS Safari auf deinem Gerät erlaubt parallel nur eine Kamera. Es wird die verfügbare genutzt.');
-      } else {
-        note('');
-      }
+  // Autostart bei Laden
+  document.addEventListener('visibilitychange', () => {
+    // Wenn zurückgekehrt und Stream weg: neu initialisieren
+    if (!document.hidden && (!stream || stream.getVideoTracks().every(t => t.readyState !== 'live'))) {
+      initMedia();
     }
+  });
 
-    /* ========= Button-Logik ========= */
-    setButtons('idle');
-
-    startBtn.addEventListener('click', async () => {
-      try {
-        setButtons('idle');
-        resetOutput();
-        setCanvasSize();
-        await lockWake();
-
-        // WICHTIG: keine globalen touchstart-prevents, damit Buttons funktionieren
-        await openBackThenFront();    // <— Fix für „zweimal Front“
-
-        startDrawLoop();
-
-        recordingStream = buildRecordingStream();
-        const mimeType = chooseMimeType();
-        try {
-          rec = new MediaRecorder(recordingStream, mimeType ? { mimeType } : {});
-        } catch (e) {
-          alert('MediaRecorder nicht verfügbar: ' + (e?.message||e));
-          stopDrawLoop(); cleanupStreams(); releaseWake(); return;
-        }
-
-        rec.ondataavailable = (e)=>{ if (e.data && e.data.size) recordedBlobs.push(e.data); };
-        rec.onstop = () => {
-          const type = rec.mimeType || 'video/mp4';
-          const blob = new Blob(recordedBlobs, { type });
-          offerShareToPhotos(blob);   // -> Fotos (über „Teilen“ > „Video sichern“)
-          cleanupStreams();
-          stopDrawLoop();
-          setButtons('stopped');
-          releaseWake();
-        };
-
-        rec.start(1000);
-        setButtons('recording');
-      } catch (err) {
-        alert('Start fehlgeschlagen: ' + (err?.message || err));
-        cleanupStreams(); stopDrawLoop(); releaseWake(); setButtons('stopped');
-      }
-    }, { passive: true });
-
-    pauseBtn.addEventListener('click', () => {
-      try {
-        if (rec && rec.state === 'recording' && 'pause' in rec) {
-          rec.pause(); setButtons('paused');
-        }
-      } catch {}
-    }, { passive: true });
-
-    resumeBtn.addEventListener('click', () => {
-      try {
-        if (rec && rec.state === 'paused' && 'resume' in rec) {
-          rec.resume(); setButtons('recording');
-        }
-      } catch {}
-    }, { passive: true });
-
-    stopBtn.addEventListener('click', () => {
-      try {
-        if (rec && rec.state !== 'inactive') rec.stop();
-      } catch {}
-    }, { passive: true });
-
-    // Edge-Guards: nur Gesten am Rand abfangen (Buttons bleiben klickbar)
-    ['touchmove','gesturestart'].forEach(ev=>{
-      document.querySelector('.edge-guard')?.addEventListener(ev, e => { e.preventDefault(); }, { passive:false });
-    });
-
-    // Sicherheitsnetz bei Verlassen
-    window.addEventListener('pagehide', () => {
-      try { if (rec && rec.state!=='inactive') rec.stop(); } catch {}
-      cleanupStreams(); stopDrawLoop(); releaseWake();
-    });
-  </script>
+  // iOS benötigt oft eine Nutzer-Geste: wir versuchen sofort, ansonsten beim ersten Tap
+  initMedia();
+})();
+</script>
 </body>
 </html>
