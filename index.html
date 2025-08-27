@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Kamera Line-Art Filter – Bild speichern (JPEG)</title>
+<title>Kamera Line-Art Filter – Auto-Pause am Ende</title>
 <style>
   :root { --gap:12px; --bg:#0b0b0b; --panel:#141414; --text:#fff; --muted:#9aa0a6; --radius:14px; }
   html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
@@ -24,18 +24,14 @@
   button.alt{background:#2a2a2a;border-color:#2a2a2a}
   button.good{background:#34c759;border-color:#34c759;font-weight:700}
   button.warn{background:#ff9f0a;border-color:#ff9f0a;font-weight:700}
-  button.danger{background:#ff453a;border-color:#ff453a;font-weight:700}
   .hint{font-size:12px;color:var(--muted);text-align:center}
 </style>
 </head>
 <body>
 <div class="app">
   <div class="stage">
-    <!-- Roh-Vorschau -->
     <video id="raw" playsinline muted autoplay></video>
-    <!-- Sichtbarer Output (inkl. Filter) -->
     <canvas id="out" class="mirror"></canvas>
-
     <div class="hud">
       <span class="pill" id="hud">Filter: pausiert</span>
     </div>
@@ -65,11 +61,11 @@
     </div>
 
     <div class="panel">
-      <div class="row" style="grid-template-columns:1fr;display:grid;gap:12px">
+      <div class="row">
         <button id="save" class="good">🖼️ Aktuelles Bild speichern (JPEG)</button>
       </div>
       <div class="row">
-        <div class="hint">iPhone: Öffnet Share-Sheet → „Bild sichern“ (Fotos). Fallback: Download oder in neuem Tab öffnen.</div>
+        <div class="hint">iPhone: Share-Sheet → „Bild sichern“ (Fotos). Fallback: Download oder Tab.</div>
       </div>
     </div>
   </div>
@@ -80,7 +76,7 @@
   const $ = s => document.querySelector(s);
   const raw = $('#raw');
   const out = $('#out');
-  const ctx = out.getContext('2d', { alpha:false });
+  const ctx = out.getContext('2d',{alpha:false});
   const hud = $('#hud');
 
   const selOrient = $('#orientation');
@@ -92,197 +88,87 @@
   const btnFlip  = $('#flip');
   const btnSave  = $('#save');
 
-  /* -------- Kamera -------- */
-  let facingMode = 'user';
-  let stream = null;
+  let facingMode='user', stream=null;
 
-  async function initMedia() {
-    // alte Tracks schließen
-    if (stream) { stream.getTracks().forEach(t => t.stop()); }
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode, width:{ideal:1280}, height:{ideal:720} },
-        audio: false
-      });
-      raw.srcObject = stream;
-      await raw.play().catch(()=>{});
-
-      await new Promise(r => {
-        if (raw.videoWidth) return r();
-        raw.addEventListener('loadedmetadata', () => r(), { once:true });
-      });
-
-      out.width = acc.width = raw.videoWidth || 1280;
-      out.height = acc.height = raw.videoHeight || 720;
-
-      resetLineArt(); // nach jeder Kameraänderung neu beginnen
-    } catch (e) {
-      alert('Kamera konnte nicht geöffnet werden: ' + e);
-      console.error(e);
-    }
-  }
-
-  /* -------- Line-Art Filter (Freeze-on-pass) -------- */
-  let mode = 'line-h';     // 'line-h' | 'line-v'
-  let running = false;
-  let line = 0, linePrev = 0;
-  let lineSpeed = 50;      // px/s
-  let animId = 0, lastTs = 0;
-
-  // Akkumulation: dauerhafte „gefrorene“ Bereiche
-  const acc = document.createElement('canvas');
-  const accCtx = acc.getContext('2d', { alpha:false });
-
-  function resetLineArt() {
-    line = linePrev = 0;
-    accCtx.fillStyle = '#000';
-    accCtx.fillRect(0,0,acc.width,acc.height);
-    renderFrame(0); // sofortiges Bild
-    hud.textContent = running ? labelRunning() : 'Filter: pausiert';
-  }
-
-  function labelRunning(){
-    const dir = (mode === 'line-h') ? 'Horizontal' : 'Vertikal';
-    return `Filter: aktiv – ${dir} @ ${Math.round(lineSpeed)} px/s`;
-  }
-
-  function draw(ts) {
-    animId = requestAnimationFrame(draw);
-    const dt = Math.min(100, ts - lastTs)/1000; // s
-    lastTs = ts;
-
-    if (running) {
-      step(dt);
-    }
-    renderFrame(dt);
-  }
-
-  function step(dt) {
-    const W = out.width, H = out.height;
-    linePrev = line;
-    if (mode === 'line-h') {
-      line += lineSpeed * dt;
-      if (line > H) { line = 0; accCtx.fillRect(0,0,acc.width,acc.height); } // kompletter Neustart
-      const y0 = Math.floor(linePrev), y1 = Math.floor(line);
-      if (y1 > y0) {
-        accCtx.drawImage(raw, 0, y0, W, y1 - y0, 0, y0, W, y1 - y0);
-      }
-    } else {
-      line += lineSpeed * dt;
-      if (line > W) { line = 0; accCtx.fillRect(0,0,acc.width,acc.height); }
-      const x0 = Math.floor(linePrev), x1 = Math.floor(line);
-      if (x1 > x0) {
-        accCtx.drawImage(raw, x0, 0, x1 - x0, out.height, x0, 0, x1 - x0, out.height);
-      }
-    }
-  }
-
-  function renderFrame() {
-    const W = out.width, H = out.height;
-    if (mode === 'line-h') {
-      // oben: gefroren
-      if (line > 0) ctx.drawImage(acc, 0, 0, W, line, 0, 0, W, line);
-      // unten: live
-      if (line < H) ctx.drawImage(raw, 0, line, W, H - line, 0, line, W, H - line);
-      // Linie
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.fillRect(0, Math.floor(line) - 1, W, 2);
-    } else {
-      if (line > 0) ctx.drawImage(acc, 0, 0, line, H, 0, 0, line, H);
-      if (line < W) ctx.drawImage(raw, line, 0, W - line, H, line, 0, W - line, H);
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.fillRect(Math.floor(line) - 1, 0, 2, H);
-    }
-  }
-
-  /* -------- Speichern (JPEG, iPhone-freundlich) -------- */
-  function isiOS(){
-    return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  }
-
-  function saveCurrentImage() {
-    // Immer den sichtbaren Canvas-Zustand (inkl. Live-Bereich) speichern
-    out.toBlob(async (blob) => {
-      if (!blob) return;
-      // iOS: am sichersten JPEG
-      const jpg = new Blob([blob], { type: 'image/jpeg' });
-      const file = new File([jpg], 'frame.jpg', { type: 'image/jpeg' });
-
-      // 1) Share-Sheet bevorzugt (→ „Bild sichern“)
-      try {
-        if (navigator.canShare && navigator.canShare({ files:[file] })) {
-          await navigator.share({ files:[file], title:'Frame', text:'Exportierter Frame' });
-          return;
-        }
-      } catch {}
-
-      // 2) Download-Fallback
-      try {
-        const url = URL.createObjectURL(jpg);
-        const a = document.createElement('a');
-        a.href = url; a.download = 'frame.jpg';
-        document.body.appendChild(a); a.click();
-        setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 1200);
-        return;
-      } catch {}
-
-      // 3) Letzter Ausweg: in neuem Tab öffnen (iOS zeigt dann „Teilen“)
-      try {
-        const url = URL.createObjectURL(jpg);
-        window.open(url, '_blank');
-      } catch {}
-    }, 'image/jpeg', 0.92);
-  }
-
-  /* -------- UI -------- */
-  selOrient.addEventListener('change', () => {
-    mode = selOrient.value;
-    // Ausrichtung gewechselt → neu anfangen (klar definiert)
+  async function initMedia(){
+    if(stream) stream.getTracks().forEach(t=>t.stop());
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode},audio:false});
+    raw.srcObject=stream; await raw.play();
+    await new Promise(r=>{if(raw.videoWidth)r();else raw.addEventListener('loadedmetadata',r,{once:true})});
+    out.width=acc.width=raw.videoWidth; out.height=acc.height=raw.videoHeight;
     resetLineArt();
-  });
+  }
 
-  rngSpeed.addEventListener('input', () => {
-    lineSpeed = parseFloat(rngSpeed.value);
-    speedVal.textContent = Math.round(lineSpeed);
-    if (running) hud.textContent = labelRunning();
-  });
+  /* --- Filter-Logik --- */
+  let mode='line-h',running=false,line=0,linePrev=0,lineSpeed=50,animId=0,lastTs=0;
+  const acc=document.createElement('canvas'); const accCtx=acc.getContext('2d',{alpha:false});
 
-  btnStart.addEventListener('click', () => {
-    if (!animId) { lastTs = performance.now(); animId = requestAnimationFrame(draw); }
-    running = true;
-    hud.textContent = labelRunning();
-    btnStart.disabled = true;
-    btnPause.disabled = false;
-  });
+  function resetLineArt(){
+    line=linePrev=0; accCtx.fillStyle='#000'; accCtx.fillRect(0,0,acc.width,acc.height);
+    renderFrame(); hud.textContent=running?labelRun():'Filter: pausiert';
+  }
+  function labelRun(){return `Filter: aktiv – ${(mode==='line-h'?'Horizontal':'Vertikal')} @ ${Math.round(lineSpeed)} px/s`;}
 
-  btnPause.addEventListener('click', () => {
-    running = false;
-    hud.textContent = 'Filter: pausiert';
-    btnStart.disabled = false;
-    btnPause.disabled = true;
-  });
+  function draw(ts){
+    animId=requestAnimationFrame(draw); const dt=Math.min(100,ts-lastTs)/1000; lastTs=ts;
+    if(running) step(dt); renderFrame();
+  }
 
-  btnReset.addEventListener('click', resetLineArt);
-  btnFlip .addEventListener('click', async () => {
-    facingMode = (facingMode === 'user') ? 'environment' : 'user';
-    out.classList.toggle('mirror', facingMode === 'user'); // nur Anzeige spiegeln
-    await initMedia();
-  });
+  function step(dt){
+    const W=out.width,H=out.height; linePrev=line;
+    if(mode==='line-h'){
+      line+=lineSpeed*dt;
+      if(line>=H){autoPause(); line=H;} else {
+        const y0=Math.floor(linePrev),y1=Math.floor(line);
+        if(y1>y0) accCtx.drawImage(raw,0,y0,W,y1-y0,0,y0,W,y1-y0);
+      }
+    } else {
+      line+=lineSpeed*dt;
+      if(line>=W){autoPause(); line=W;} else {
+        const x0=Math.floor(linePrev),x1=Math.floor(line);
+        if(x1>x0) accCtx.drawImage(raw,x0,0,x1-x0,H,x0,0,x1-x0,H);
+      }
+    }
+  }
 
-  btnSave.addEventListener('click', saveCurrentImage);
+  function autoPause(){
+    running=false; hud.textContent='Filter: automatisch pausiert (Ende erreicht)';
+    btnStart.disabled=false; btnPause.disabled=true;
+  }
 
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && (!stream || stream.getVideoTracks().every(t => t.readyState !== 'live'))) initMedia();
-  });
+  function renderFrame(){
+    const W=out.width,H=out.height;
+    if(mode==='line-h'){
+      if(line>0) ctx.drawImage(acc,0,0,W,line,0,0,W,line);
+      if(line<H) ctx.drawImage(raw,0,line,W,H-line,0,line,W,H-line);
+      ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.fillRect(0,Math.floor(line)-1,W,2);
+    } else {
+      if(line>0) ctx.drawImage(acc,0,0,line,H,0,0,line,H);
+      if(line<W) ctx.drawImage(raw,line,0,W-line,H,line,0,W-line,H);
+      ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.fillRect(Math.floor(line)-1,0,2,H);
+    }
+  }
 
-  // Autostart (paused)
-  initMedia().then(()=>{
-    if (!animId) { lastTs = performance.now(); animId = requestAnimationFrame(draw); }
-    running = false;
-    hud.textContent = 'Filter: pausiert';
-    btnStart.disabled = false;
-    btnPause.disabled = true;
-  });
+  /* --- Bild speichern --- */
+  function saveImage(){
+    out.toBlob(async b=>{
+      if(!b) return; const jpg=new Blob([b],{type:'image/jpeg'}); const f=new File([jpg],'frame.jpg',{type:'image/jpeg'});
+      try{if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:'Frame'});return;}}catch{}
+      const url=URL.createObjectURL(jpg); const a=document.createElement('a'); a.href=url; a.download='frame.jpg'; document.body.appendChild(a); a.click();
+      setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},1200);
+    },'image/jpeg',0.92);
+  }
+
+  /* --- UI --- */
+  selOrient.onchange=()=>{mode=selOrient.value; resetLineArt();}
+  rngSpeed.oninput=()=>{lineSpeed=parseFloat(rngSpeed.value); speedVal.textContent=Math.round(lineSpeed); if(running)hud.textContent=labelRun();}
+  btnStart.onclick=()=>{if(!animId){lastTs=performance.now();animId=requestAnimationFrame(draw);} running=true; hud.textContent=labelRun(); btnStart.disabled=true; btnPause.disabled=false;}
+  btnPause.onclick=()=>{running=false; hud.textContent='Filter: pausiert'; btnStart.disabled=false; btnPause.disabled=true;}
+  btnReset.onclick=resetLineArt;
+  btnFlip.onclick=async()=>{facingMode=(facingMode==='user')?'environment':'user'; out.classList.toggle('mirror',facingMode==='user'); await initMedia();}
+  btnSave.onclick=saveImage;
+
+  initMedia().then(()=>{if(!animId){lastTs=performance.now();animId=requestAnimationFrame(draw);} running=false;});
 })();
 </script>
 </body>
